@@ -1,14 +1,30 @@
+import { Route, Routes } from "react-router";
+
+import Header from "../components/layout/Header";
+import AdminPage from "../pages/AdminPage";
+import CartPage from "../pages/CartPage";
+import HomePage from "../pages/HomePage";
+import LoginPage from "../pages/LoginPage";
+import ProductsPage from "../pages/ProductsPage";
+
 function App() {
   return (
-    <main>
-      <h1>Min egna e-handel</h1>
+    <div className="min-h-screen bg-slate-50">
+      <Header />
 
-      <p>
-        Här kommer kunder att kunna se produkter, lägga dem i varukorgen och
-        skapa en order.
-      </p>
-    </main>
-  )
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+
+        <Route path="/products" element={<ProductsPage />} />
+
+        <Route path="/cart" element={<CartPage />} />
+
+        <Route path="/login" element={<LoginPage />} />
+
+        <Route path="/admin" element={<AdminPage />} />
+      </Routes>
+    </div>
+  );
 }
 
-export default App
+export default App;
