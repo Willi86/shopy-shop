@@ -1,3 +1,4 @@
+import { useCart } from '../../cart/useCart'
 import type { Product } from "../../../types/product";
 
 type ProductCardProps = {
@@ -5,6 +6,8 @@ type ProductCardProps = {
 };
 
 function ProductCard({ product }: ProductCardProps) {
+  const { addToCart } = useCart();
+
   return (
     <article className="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl">
       <div className="relative aspect-square overflow-hidden bg-slate-100">
@@ -44,6 +47,7 @@ function ProductCard({ product }: ProductCardProps) {
           <button
             type="button"
             disabled={product.stock === 0}
+            onClick={() => addToCart(product)}
             className="rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             Lägg i varukorg

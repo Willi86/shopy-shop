@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router";
 import Header from "../components/layout/Header";
 import AdminPage from "../pages/AdminPage";
 import CartPage from "../pages/CartPage";
+import CheckoutPage from "../pages/CheckoutPage";
 import HomePage from "../pages/HomePage";
 import LoginPage from "../pages/LoginPage";
 import ProductsPage from "../pages/ProductsPage";
@@ -18,6 +19,8 @@ function App() {
         <Route path="/products" element={<ProductsPage />} />
 
         <Route path="/cart" element={<CartPage />} />
+
+        <Route path="/checkout" element={<CheckoutPage />} />
 
         <Route path="/login" element={<LoginPage />} />
 

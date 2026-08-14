@@ -1,5 +1,5 @@
 import { NavLink } from "react-router";
-
+import { useCart } from '../../features/cart/useCart'
 const navigation = [
   {
     label: "Hem",
@@ -12,9 +12,11 @@ const navigation = [
 ];
 
 function Header() {
+  const { totalItems } = useCart();
+
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex h-18 max-w-7xl items-center justify-between px-6 py-4">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         <NavLink to="/" className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-sm font-black text-white">
             P3D
@@ -50,9 +52,14 @@ function Header() {
 
           <NavLink
             to="/cart"
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             Varukorg
+            {totalItems > 0 && (
+              <span className="flex min-w-5 items-center justify-center rounded-full bg-slate-950 px-1.5 text-xs text-white">
+                {totalItems}
+              </span>
+            )}
           </NavLink>
 
           <NavLink
