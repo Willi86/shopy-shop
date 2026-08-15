@@ -1,23 +1,27 @@
-import { useCart } from '../../cart/useCart'
+import { useCart } from "../../cart/useCart";
 import type { Product } from "../../../types/product";
 
 type ProductCardProps = {
   product: Product;
+  priority?: boolean;
 };
 
-function ProductCard({ product }: ProductCardProps) {
+function ProductCard({ product, priority = false }: ProductCardProps) {
   const { addToCart } = useCart();
 
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl">
-      <div className="relative aspect-square overflow-hidden bg-slate-100">
+    <article className="flex h-full flex-col overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm transition-shadow duration-200 hover:shadow-lg">
+      <div className="relative min-h-65 overflow-hidden bg-slate-100 sm:min-h-75">
         <img
           src={product.imageUrl}
           alt={product.name}
-          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+          loading={priority ? "eager" : "lazy"}
+          decoding="async"
+          fetchPriority={priority ? "high" : "auto"}
+          className="absolute inset-0 h-full w-full object-cover"
         />
 
-        <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur">
+        <span className="absolute left-4 top-4 rounded-full border border-white/50 bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur">
           {product.category}
         </span>
       </div>
@@ -33,13 +37,13 @@ function ProductCard({ product }: ProductCardProps) {
           </p>
         </div>
 
-        <div className="mt-5 flex items-end justify-between gap-4">
+        <div className="mt-6 flex items-end justify-between gap-4 border-t border-slate-100 pt-5">
           <div>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs font-medium text-slate-500">
               {product.stock > 0 ? `${product.stock} i lager` : "Slut i lager"}
             </p>
 
-            <p className="mt-1 text-xl font-bold text-slate-950">
+            <p className="mt-1 text-xl font-bold tracking-tight text-slate-950">
               {product.price.toLocaleString("sv-SE")} kr
             </p>
           </div>
@@ -48,7 +52,7 @@ function ProductCard({ product }: ProductCardProps) {
             type="button"
             disabled={product.stock === 0}
             onClick={() => addToCart(product)}
-            className="rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="shrink-0 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             Lägg i varukorg
           </button>
