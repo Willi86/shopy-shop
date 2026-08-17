@@ -8,6 +8,7 @@ import HomePage from "../pages/HomePage";
 import LoginPage from "../pages/LoginPage";
 import ProductDetailsPage from "../pages/ProductDetailsPage";
 import ProductsPage from "../pages/ProductsPage";
+import ProtectedAdminRoute from "../routes/ProtectedAdminRoute";
 
 function App() {
   return (
@@ -27,7 +28,14 @@ function App() {
 
         <Route path="/login" element={<LoginPage />} />
 
-        <Route path="/admin" element={<AdminPage />} />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedAdminRoute>
+              <AdminPage />
+            </ProtectedAdminRoute>
+          }
+        />
       </Routes>
     </div>
   );
