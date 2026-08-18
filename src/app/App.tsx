@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router";
 
 import Header from "../components/layout/Header";
 import AdminPage from "../pages/AdminPage";
+import AdminProductsPage from "../pages/AdminProductsPage";
 import CartPage from "../pages/CartPage";
 import CheckoutPage from "../pages/CheckoutPage";
 import HomePage from "../pages/HomePage";
@@ -33,6 +34,15 @@ function App() {
           element={
             <ProtectedAdminRoute>
               <AdminPage />
+            </ProtectedAdminRoute>
+          }
+        />
+
+        <Route
+          path="/admin/products"
+          element={
+            <ProtectedAdminRoute>
+              <AdminProductsPage />
             </ProtectedAdminRoute>
           }
         />

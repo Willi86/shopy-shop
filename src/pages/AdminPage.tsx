@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 
 import { useAuth } from "../features/auth/useAuth";
 import { getAdminOrders, type AdminOrder } from "../services/adminOrderService";
@@ -11,23 +12,36 @@ function AdminPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadOrders() {
-      try {
-        setError(null);
+    let cancelled = false;
 
-        const data = await getAdminOrders();
+    getAdminOrders()
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
 
         setOrders(data);
-      } catch (error) {
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
         setError(
           error instanceof Error ? error.message : "Kunde inte ladda ordrar.",
         );
-      } finally {
-        setIsLoading(false);
-      }
-    }
+      })
+      .finally(() => {
+        if (cancelled) {
+          return;
+        }
 
-    void loadOrders();
+        setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -45,9 +59,18 @@ function AdminPage() {
           <p className="mt-3 text-slate-600">Inloggad som {user?.email}</p>
         </div>
 
-        <span className="inline-flex w-fit rounded-full bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white">
-          {role}
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            to="/admin/products"
+            className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            Hantera produkter
+          </Link>
+
+          <span className="inline-flex w-fit rounded-full bg-slate-950 px-3 py-1.5 text-sm font-semibold capitalize text-white">
+            {role}
+          </span>
+        </div>
       </div>
 
       {isLoading && (
