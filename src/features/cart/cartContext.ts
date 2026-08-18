@@ -12,6 +12,7 @@ export type CartContextValue = {
   decreaseQuantity: (productId: string) => void;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
+  canIncreaseQuantity: (productId: string) => boolean;
 };
 
 export const CartContext = createContext<CartContextValue | undefined>(

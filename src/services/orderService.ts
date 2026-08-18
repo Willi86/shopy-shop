@@ -11,6 +11,21 @@ type CreateOrderInput = {
   items: CartItem[];
 };
 
+async function decreaseStock(items: CartItem[]): Promise<void> {
+  for (const item of items) {
+    const { error } = await supabase.rpc("decrease_product_stock", {
+      p_product_id: item.product.id,
+      p_quantity: item.quantity,
+    });
+
+    if (error) {
+      throw new Error(
+        `Kunde inte uppdatera lagersaldot för ${item.product.name}: ${error.message}`,
+      );
+    }
+  }
+}
+
 export async function createOrder(order: CreateOrderInput): Promise<string> {
   const orderId = crypto.randomUUID();
 
@@ -46,6 +61,8 @@ export async function createOrder(order: CreateOrderInput): Promise<string> {
       `Ordern skapades men orderraderna kunde inte sparas: ${orderItemsError.message}`,
     );
   }
+
+  await decreaseStock(order.items);
 
   return orderId;
 }

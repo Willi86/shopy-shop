@@ -18,6 +18,10 @@ export function CartProvider({ children }: CartProviderProps) {
       );
 
       if (existingItem) {
+        if (existingItem.quantity >= product.stock) {
+          return currentItems;
+        }
+
         return currentItems.map((item) =>
           item.product.id === product.id
             ? {
@@ -26,6 +30,10 @@ export function CartProvider({ children }: CartProviderProps) {
               }
             : item,
         );
+      }
+
+      if (product.stock <= 0) {
+        return currentItems;
       }
 
       return [
@@ -40,14 +48,20 @@ export function CartProvider({ children }: CartProviderProps) {
 
   function increaseQuantity(productId: string) {
     setItems((currentItems) =>
-      currentItems.map((item) =>
-        item.product.id === productId
-          ? {
-              ...item,
-              quantity: item.quantity + 1,
-            }
-          : item,
-      ),
+      currentItems.map((item) => {
+        if (item.product.id !== productId) {
+          return item;
+        }
+
+        if (item.quantity >= item.product.stock) {
+          return item;
+        }
+
+        return {
+          ...item,
+          quantity: item.quantity + 1,
+        };
+      }),
     );
   }
 
@@ -76,6 +90,16 @@ export function CartProvider({ children }: CartProviderProps) {
     setItems([]);
   }
 
+  function canIncreaseQuantity(productId: string): boolean {
+    const cartItem = items.find((item) => item.product.id === productId);
+
+    if (!cartItem) {
+      return false;
+    }
+
+    return cartItem.quantity < cartItem.product.stock;
+  }
+
   const totalItems = useMemo(
     () => items.reduce((total, item) => total + item.quantity, 0),
     [items],
@@ -101,6 +125,7 @@ export function CartProvider({ children }: CartProviderProps) {
         decreaseQuantity,
         removeFromCart,
         clearCart,
+        canIncreaseQuantity,
       }}
     >
       {children}
