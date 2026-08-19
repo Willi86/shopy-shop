@@ -93,11 +93,7 @@ export function CartProvider({ children }: CartProviderProps) {
   function canIncreaseQuantity(productId: string): boolean {
     const cartItem = items.find((item) => item.product.id === productId);
 
-    if (!cartItem) {
-      return false;
-    }
-
-    return cartItem.quantity < cartItem.product.stock;
+    return !cartItem || cartItem.quantity < cartItem.product.stock;
   }
 
   const totalItems = useMemo(
