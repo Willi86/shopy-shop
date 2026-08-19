@@ -49,7 +49,9 @@ function ProductDetailsPage() {
       return;
     }
 
-    if (product.stock <= 0) {
+    const result = addToCart(product);
+
+    if (result === "out-of-stock") {
       showToast({
         title: "Produkten är slut i lager",
         description: `${product.name} kan inte läggas i varukorgen just nu.`,
@@ -59,7 +61,19 @@ function ProductDetailsPage() {
       return;
     }
 
-    addToCart(product);
+    if (result === "max-stock") {
+      showToast({
+        title: "Max antal i varukorgen",
+        description: `Du har redan lagt till maximalt tillgängligt antal av ${product.name}.`,
+        variant: "info",
+        action: {
+          label: "Visa varukorg",
+          to: "/cart",
+        },
+      });
+
+      return;
+    }
 
     showToast({
       title: "Tillagd i varukorgen",

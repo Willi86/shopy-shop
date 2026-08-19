@@ -1,6 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 
-import { CartContext } from "./cartContext";
+import { CartContext, type AddToCartResult } from "./cartContext";
+
 import type { CartItem } from "../../types/cart";
 import type { Product } from "../../types/product";
 
@@ -11,87 +12,104 @@ type CartProviderProps = {
 export function CartProvider({ children }: CartProviderProps) {
   const [items, setItems] = useState<CartItem[]>([]);
 
-  function addToCart(product: Product) {
-    setItems((currentItems) => {
-      const existingItem = currentItems.find(
-        (item) => item.product.id === product.id,
-      );
+  const itemsRef = useRef<CartItem[]>([]);
 
-      if (existingItem) {
-        if (existingItem.quantity >= product.stock) {
-          return currentItems;
-        }
+  function updateItems(nextItems: CartItem[]) {
+    itemsRef.current = nextItems;
+    setItems(nextItems);
+  }
 
-        return currentItems.map((item) =>
+  function addToCart(product: Product): AddToCartResult {
+    if (product.stock <= 0) {
+      return "out-of-stock";
+    }
+
+    const currentItems = itemsRef.current;
+
+    const existingItem = currentItems.find(
+      (item) => item.product.id === product.id,
+    );
+
+    if (existingItem && existingItem.quantity >= product.stock) {
+      return "max-stock";
+    }
+
+    const nextItems = existingItem
+      ? currentItems.map((item) =>
           item.product.id === product.id
             ? {
                 ...item,
                 quantity: item.quantity + 1,
               }
             : item,
-        );
-      }
+        )
+      : [
+          ...currentItems,
+          {
+            product,
+            quantity: 1,
+          },
+        ];
 
-      if (product.stock <= 0) {
-        return currentItems;
-      }
+    updateItems(nextItems);
 
-      return [
-        ...currentItems,
-        {
-          product,
-          quantity: 1,
-        },
-      ];
-    });
+    return "added";
   }
 
   function increaseQuantity(productId: string) {
-    setItems((currentItems) =>
-      currentItems.map((item) => {
-        if (item.product.id !== productId) {
-          return item;
-        }
+    const currentItems = itemsRef.current;
 
-        if (item.quantity >= item.product.stock) {
-          return item;
-        }
+    const nextItems = currentItems.map((item) => {
+      if (item.product.id !== productId) {
+        return item;
+      }
 
-        return {
-          ...item,
-          quantity: item.quantity + 1,
-        };
-      }),
-    );
+      if (item.quantity >= item.product.stock) {
+        return item;
+      }
+
+      return {
+        ...item,
+        quantity: item.quantity + 1,
+      };
+    });
+
+    updateItems(nextItems);
   }
 
   function decreaseQuantity(productId: string) {
-    setItems((currentItems) =>
-      currentItems
-        .map((item) =>
-          item.product.id === productId
-            ? {
-                ...item,
-                quantity: item.quantity - 1,
-              }
-            : item,
-        )
-        .filter((item) => item.quantity > 0),
-    );
+    const currentItems = itemsRef.current;
+
+    const nextItems = currentItems
+      .map((item) =>
+        item.product.id === productId
+          ? {
+              ...item,
+              quantity: item.quantity - 1,
+            }
+          : item,
+      )
+      .filter((item) => item.quantity > 0);
+
+    updateItems(nextItems);
   }
 
   function removeFromCart(productId: string) {
-    setItems((currentItems) =>
-      currentItems.filter((item) => item.product.id !== productId),
+    const nextItems = itemsRef.current.filter(
+      (item) => item.product.id !== productId,
     );
+
+    updateItems(nextItems);
   }
 
   function clearCart() {
-    setItems([]);
+    updateItems([]);
   }
 
   function canIncreaseQuantity(productId: string): boolean {
-    const cartItem = items.find((item) => item.product.id === productId);
+    const cartItem = itemsRef.current.find(
+      (item) => item.product.id === productId,
+    );
 
     return !cartItem || cartItem.quantity < cartItem.product.stock;
   }

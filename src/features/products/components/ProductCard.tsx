@@ -10,11 +10,13 @@ type ProductCardProps = {
 };
 
 function ProductCard({ product, priority = false }: ProductCardProps) {
-  const { addToCart, canIncreaseQuantity } = useCart();
+  const { addToCart } = useCart();
   const { showToast } = useToast();
 
   function handleAddToCart() {
-    if (product.stock <= 0) {
+    const result = addToCart(product);
+
+    if (result === "out-of-stock") {
       showToast({
         title: "Slut i lager",
         description: `${product.name} finns inte i lager just nu.`,
@@ -24,9 +26,7 @@ function ProductCard({ product, priority = false }: ProductCardProps) {
       return;
     }
 
-    const canAddMore = canIncreaseQuantity(product.id);
-
-    if (!canAddMore) {
+    if (result === "max-stock") {
       showToast({
         title: "Max antal i varukorgen",
         description: `Du har redan lagt till maximalt tillgängligt antal av ${product.name}.`,
@@ -39,8 +39,6 @@ function ProductCard({ product, priority = false }: ProductCardProps) {
 
       return;
     }
-
-    addToCart(product);
 
     showToast({
       title: "Tillagd i varukorgen",
