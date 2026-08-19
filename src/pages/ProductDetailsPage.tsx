@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 
+import { useToast } from "../components/ui/useToast";
 import { useCart } from "../features/cart/useCart";
 import { getProductById } from "../services/productService";
 import type { Product } from "../types/product";
 
 function ProductDetailsPage() {
   const { id } = useParams();
+
   const { addToCart } = useCart();
+  const { showToast } = useToast();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,6 +44,34 @@ function ProductDetailsPage() {
     void loadProduct();
   }, [id]);
 
+  function handleAddToCart() {
+    if (!product) {
+      return;
+    }
+
+    if (product.stock <= 0) {
+      showToast({
+        title: "Produkten är slut i lager",
+        description: `${product.name} kan inte läggas i varukorgen just nu.`,
+        variant: "error",
+      });
+
+      return;
+    }
+
+    addToCart(product);
+
+    showToast({
+      title: "Tillagd i varukorgen",
+      description: `${product.name} har lagts till.`,
+      variant: "success",
+      action: {
+        label: "Visa varukorg",
+        to: "/cart",
+      },
+    });
+  }
+
   if (isLoading) {
     return (
       <main className="mx-auto max-w-7xl px-6 py-12">
@@ -73,7 +104,7 @@ function ProductDetailsPage() {
 
           <Link
             to="/products"
-            className="mt-6 inline-flex rounded-xl bg-slate-950 px-5 py-3 font-semibold text-white"
+            className="mt-6 inline-flex rounded-xl bg-slate-950 px-5 py-3 font-semibold text-white transition-[background-color,transform] duration-150 hover:bg-slate-800 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
           >
             Tillbaka till produkter
           </Link>
@@ -88,13 +119,19 @@ function ProductDetailsPage() {
         aria-label="Brödsmulor"
         className="mb-8 flex items-center gap-2 text-sm text-slate-500"
       >
-        <Link to="/" className="transition-colors hover:text-slate-950">
+        <Link
+          to="/"
+          className="rounded transition-colors hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+        >
           Hem
         </Link>
 
         <span>/</span>
 
-        <Link to="/products" className="transition-colors hover:text-slate-950">
+        <Link
+          to="/products"
+          className="rounded transition-colors hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+        >
           Produkter
         </Link>
 
@@ -104,7 +141,7 @@ function ProductDetailsPage() {
       </nav>
 
       <div className="grid items-start gap-10 lg:grid-cols-2 lg:gap-16">
-        <section className="overflow-hidden rounded-4xl border border-slate-200 bg-white">
+        <section className="overflow-hidden rounded-4xl border border-slate-200 bg-white shadow-sm">
           <img
             src={product.imageUrl}
             alt={product.name}
@@ -155,8 +192,8 @@ function ProductDetailsPage() {
           <button
             type="button"
             disabled={product.stock === 0}
-            onClick={() => addToCart(product)}
-            className="mt-8 w-full rounded-2xl bg-slate-950 px-6 py-4 text-base font-semibold text-white transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto"
+            onClick={handleAddToCart}
+            className="mt-8 w-full rounded-2xl bg-slate-950 px-6 py-4 text-base font-semibold text-white shadow-sm transition-[background-color,transform,box-shadow] duration-150 hover:bg-slate-800 hover:shadow-md active:scale-[0.98] active:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:active:scale-100 sm:w-auto"
           >
             Lägg i varukorg
           </button>

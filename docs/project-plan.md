@@ -74,7 +74,7 @@ Projektet planeras använda:
 - Redigera produkter
 - Validera formulär
 
-### Dag 8
+### Dag 8    
 
 - Visa ordrar i adminpanelen
 - Visa beställda produkter
