@@ -8,7 +8,7 @@ type ProtectedAdminRouteProps = {
 };
 
 function ProtectedAdminRoute({ children }: ProtectedAdminRouteProps) {
-  const { user, role, isLoading } = useAuth();
+  const { role, isLoading, isLoggedIn } = useAuth();
 
   const location = useLocation();
 
@@ -24,7 +24,7 @@ function ProtectedAdminRoute({ children }: ProtectedAdminRouteProps) {
     );
   }
 
-  if (!user) {
+  if (!isLoggedIn) {
     return (
       <Navigate
         to="/login"
@@ -54,7 +54,7 @@ function ProtectedAdminRoute({ children }: ProtectedAdminRouteProps) {
 
           <Link
             to="/"
-            className="mt-7 inline-flex rounded-xl bg-slate-950 px-5 py-3 font-semibold text-white"
+            className="mt-7 inline-flex rounded-xl bg-slate-950 px-5 py-3 font-semibold text-white transition-[background-color,transform] hover:bg-slate-800 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
           >
             Till startsidan
           </Link>

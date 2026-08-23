@@ -1,22 +1,29 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
+
 import type { Session, User } from "@supabase/supabase-js";
 
 import { supabase } from "../../lib/supabase";
+
 import { AuthContext, type UserRole } from "./authContext";
 
 type AuthProviderProps = {
   children: ReactNode;
 };
 
+function isAnonymousUser(user: User | null | undefined): boolean {
+  return user?.is_anonymous === true;
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
+
   const [session, setSession] = useState<Session | null>(null);
 
   const [role, setRole] = useState<UserRole | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
 
-  async function loadRole(userId: string): Promise<UserRole | null> {
+  const loadRole = useCallback(async (userId: string): Promise<UserRole | null> => {
     const { data, error } = await supabase
       .from("profiles")
       .select("role")
@@ -34,27 +41,47 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     return data.role as UserRole;
-  }
+  }, []);
+
+  const applySession = useCallback(async (nextSession: Session | null) => {
+    const nextUser = nextSession?.user ?? null;
+
+    setSession(nextSession);
+    setUser(nextUser);
+
+    if (!nextUser || isAnonymousUser(nextUser)) {
+      setRole(null);
+      return;
+    }
+
+    const userRole = await loadRole(nextUser.id);
+
+    setRole(userRole);
+  }, [loadRole]);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function initializeAuth() {
       try {
         const {
           data: { session },
+          error,
         } = await supabase.auth.getSession();
 
-        setSession(session);
-        setUser(session?.user ?? null);
-
-        if (session?.user) {
-          const userRole = await loadRole(session.user.id);
-
-          setRole(userRole);
-        } else {
-          setRole(null);
+        if (error) {
+          console.error("Could not initialize auth:", error.message);
         }
+
+        if (cancelled) {
+          return;
+        }
+
+        await applySession(session);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
@@ -63,29 +90,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
-
-      if (!newSession?.user) {
-        setRole(null);
-        setIsLoading(false);
-        return;
-      }
-
       setIsLoading(true);
 
       setTimeout(() => {
-        void loadRole(newSession.user.id).then((userRole) => {
-          setRole(userRole);
+        void applySession(newSession).finally(() => {
           setIsLoading(false);
         });
       }, 0);
     });
 
     return () => {
+      cancelled = true;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [applySession]);
 
   async function signOut() {
     const { error } = await supabase.auth.signOut();
@@ -95,13 +113,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }
 
+  const isAnonymous = isAnonymousUser(user);
+
+  const isLoggedIn = Boolean(user) && !isAnonymous;
+
   return (
     <AuthContext.Provider
       value={{
         user,
         session,
         role,
+
         isLoading,
+
+        isAnonymous,
+        isLoggedIn,
+
         signOut,
       }}
     >
