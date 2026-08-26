@@ -27,3 +27,5 @@ dist-ssr
 .env.*.local
 .env.seed
 .vercel
+.vercel/
+supabase/.temp/
