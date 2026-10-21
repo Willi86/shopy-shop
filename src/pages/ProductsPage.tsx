@@ -1,35 +1,146 @@
 import { useEffect, useState } from "react";
 
 import ProductCard from "../features/products/components/ProductCard";
-import { getProducts } from "../services/productService";
 import type { Product } from "../types/product";
+
+const API_URL = "http://localhost:3001/api/products/search";
+const PAGE_SIZE = 8;
+
+type ApiProduct = Omit<Product, "imageUrl"> & {
+  image_url: string | null;
+};
+
+type SearchResponse = {
+  data: ApiProduct[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
+
+const categories = [
+  "Islamisk dekoration",
+  "Dekoration",
+  "Hem & trädgård",
+  "Belysning",
+  "Test",
+  "its just a test",
+];
 
 function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [category, setCategory] = useState("");
+  const [sort, setSort] = useState("newest");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
   useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 350);
+
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
     async function loadProducts() {
+      setIsLoading(true);
+      setError(null);
+
       try {
-        setError(null);
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: String(PAGE_SIZE),
+          sort,
+        });
 
-        const data = await getProducts();
+        if (debouncedSearch.trim()) {
+          params.set("q", debouncedSearch.trim());
+        }
 
-        setProducts(data);
+        if (category) {
+          params.set("category", category);
+        }
+
+        const response = await fetch(`${API_URL}?${params.toString()}`, {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Kunde inte hämta produkter (${response.status}).`);
+        }
+
+        const result = (await response.json()) as SearchResponse;
+
+        if (
+          !Array.isArray(result.data) ||
+          !result.pagination ||
+          typeof result.pagination.total !== "number" ||
+          typeof result.pagination.totalPages !== "number"
+        ) {
+          throw new Error("Ogiltigt svar från produkt-API.");
+        }
+
+        const mappedProducts: Product[] = result.data.map((product) => ({
+          ...product,
+          imageUrl: product.image_url ?? "",
+        }));
+
+        setProducts(mappedProducts);
+        setTotal(result.pagination.total);
+        setTotalPages(Math.max(1, result.pagination.totalPages));
       } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setProducts([]);
+        setTotal(0);
+        setTotalPages(1);
+
         setError(
           error instanceof Error
             ? error.message
             : "Kunde inte ladda produkterna.",
         );
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
       }
     }
 
     void loadProducts();
-  }, []);
+
+    return () => {
+      controller.abort();
+    };
+  }, [debouncedSearch, category, sort, page]);
+
+  function handleSearch(value: string) {
+    setSearch(value);
+    setPage(1);
+  }
+
+  function handleCategory(value: string) {
+    setCategory(value);
+    setPage(1);
+  }
+
+  function handleSort(value: string) {
+    setSort(value);
+    setPage(1);
+  }
 
   return (
     <main>
@@ -53,8 +164,7 @@ function ProductsPage() {
 
             {!isLoading && !error && (
               <p className="text-sm font-medium text-slate-500">
-                {products.length}{" "}
-                {products.length === 1 ? "produkt" : "produkter"}
+                {total} {total === 1 ? "produkt" : "produkter"}
               </p>
             )}
           </div>
@@ -62,6 +172,74 @@ function ProductsPage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-6 py-12 lg:py-16">
+        <div className="mb-8 grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-3">
+          <div>
+            <label
+              htmlFor="product-search"
+              className="mb-2 block text-sm font-semibold text-slate-700"
+            >
+              Sök produkter
+            </label>
+
+            <input
+              id="product-search"
+              type="search"
+              value={search}
+              onChange={(event) => handleSearch(event.target.value)}
+              placeholder="Sök efter en produkt..."
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="product-category"
+              className="mb-2 block text-sm font-semibold text-slate-700"
+            >
+              Kategori
+            </label>
+
+            <select
+              id="product-category"
+              value={category}
+              onChange={(event) => handleCategory(event.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-slate-950"
+            >
+              <option value="">Alla kategorier</option>
+
+              {categories.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="product-sort"
+              className="mb-2 block text-sm font-semibold text-slate-700"
+            >
+              Sortera
+            </label>
+
+            <select
+              id="product-sort"
+              value={sort}
+              onChange={(event) => handleSort(event.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none focus:border-slate-950"
+            >
+              <option value="newest">Nyaste först</option>
+
+              <option value="price_asc">Pris: lägst först</option>
+
+              <option value="price_desc">Pris: högst först</option>
+
+              <option value="name_asc">Namn: A–Ö</option>
+            </select>
+          </div>
+        </div>
+
         {error && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-red-700">
             <p className="font-semibold">Produkterna kunde inte laddas</p>
@@ -96,25 +274,55 @@ function ProductsPage() {
         {!isLoading && !error && products.length === 0 && (
           <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center">
             <h2 className="text-xl font-bold text-slate-950">
-              Inga produkter ännu
+              Inga produkter hittades
             </h2>
 
             <p className="mt-2 text-slate-600">
-              Produkterna kommer att visas här när de har lagts till.
+              Prova ett annat sökord eller välj en annan kategori.
             </p>
           </div>
         )}
 
         {!isLoading && !error && products.length > 0 && (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {products.map((product, index) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                priority={index < 4}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {products.map((product, index) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  priority={index < 4}
+                />
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="mt-10 flex items-center justify-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={page === 1}
+                  className="rounded-xl border border-slate-300 px-5 py-3 font-medium disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Föregående
+                </button>
+
+                <span className="text-sm font-medium text-slate-600">
+                  Sida {page} av {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPage((current) => Math.min(totalPages, current + 1))
+                  }
+                  disabled={page >= totalPages}
+                  className="rounded-xl border border-slate-300 px-5 py-3 font-medium disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Nästa
+                </button>
+              </div>
+            )}
+          </>
         )}
       </section>
     </main>
