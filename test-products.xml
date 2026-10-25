@@ -1,0 +1,20 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<products>
+  <product>
+    <name>XML Lampa</name>
+    <description>Importerad från XML</description>
+    <price>249</price>
+    <stock>7</stock>
+    <category>Belysning</category>
+    <image_url></image_url>
+  </product>
+  <product>
+    <name>XML Dekoration</name>
+    <description>Testprodukt från XML</description>
+    <price>179</price>
+    <stock>12</stock>
+    <category>Dekoration</category>
+    <image_url></image_url>
+  </product>
+</products>

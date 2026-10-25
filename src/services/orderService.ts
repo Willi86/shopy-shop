@@ -1,4 +1,3 @@
-import { supabase } from "../lib/supabase";
 import type { CartItem } from "../types/cart";
 
 type CreateOrderInput = {
@@ -11,58 +10,40 @@ type CreateOrderInput = {
   items: CartItem[];
 };
 
-async function decreaseStock(items: CartItem[]): Promise<void> {
-  for (const item of items) {
-    const { error } = await supabase.rpc("decrease_product_stock", {
-      p_product_id: item.product.id,
-      p_quantity: item.quantity,
-    });
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
-    if (error) {
-      throw new Error(
-        `Kunde inte uppdatera lagersaldot för ${item.product.name}: ${error.message}`,
-      );
-    }
-  }
-}
-
-export async function createOrder(order: CreateOrderInput): Promise<string> {
-  const orderId = crypto.randomUUID();
-
-  const { error: orderError } = await supabase.from("orders").insert({
-    id: orderId,
-    customer_name: order.customerName,
-    customer_email: order.customerEmail,
-    customer_address: order.customerAddress,
-    postal_code: order.postalCode,
-    city: order.city,
-    total_price: order.totalPrice,
-    status: "ordered",
+export async function createOrder(
+  order: CreateOrderInput,
+): Promise<string> {
+  const response = await fetch(`${API_URL}/api/checkout`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      customerName: order.customerName,
+      customerEmail: order.customerEmail,
+      customerAddress: order.customerAddress,
+      postalCode: order.postalCode,
+      city: order.city,
+      items: order.items.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+      })),
+    }),
   });
 
-  if (orderError) {
-    throw new Error(`Kunde inte skapa order: ${orderError.message}`);
-  }
+  const result = await response.json();
 
-  const orderItems = order.items.map((item) => ({
-    order_id: orderId,
-    product_id: item.product.id,
-    product_name: item.product.name,
-    price: item.product.price,
-    quantity: item.quantity,
-  }));
-
-  const { error: orderItemsError } = await supabase
-    .from("order_items")
-    .insert(orderItems);
-
-  if (orderItemsError) {
+  if (!response.ok) {
     throw new Error(
-      `Ordern skapades men orderraderna kunde inte sparas: ${orderItemsError.message}`,
+      result.error ?? "Kunde inte skapa ordern.",
     );
   }
 
-  await decreaseStock(order.items);
+  if (!result.orderId) {
+    throw new Error("Servern returnerade inget order-ID.");
+  }
 
-  return orderId;
+  return result.orderId;
 }

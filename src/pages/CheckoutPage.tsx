@@ -4,8 +4,15 @@ import { Link } from "react-router";
 import { useCart } from "../features/cart/useCart";
 import { createOrder } from "../services/orderService";
 
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+
+type StripeCheckoutResponse = {
+  sessionId: string;
+  url: string;
+};
+
 function CheckoutPage() {
-  const { items, totalPrice, clearCart } = useCart();
+  const { items, totalPrice } = useCart();
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -14,86 +21,115 @@ function CheckoutPage() {
   const [postalCode, setPostalCode] = useState("");
   const [city, setCity] = useState("");
 
+  const [orderId, setOrderId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [successOrderId, setSuccessOrderId] = useState<string | null>(null);
+
+  function formatPrice(amount: number) {
+    return `${amount.toLocaleString("sv-SE")} kr`;
+  }
+
+  async function createStripeCheckout(
+    currentOrderId: string,
+  ): Promise<StripeCheckoutResponse> {
+    const response = await fetch(`${API_URL}/api/stripe/checkout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        orderId: currentOrderId,
+      }),
+    });
+
+    const contentType = response.headers.get("content-type") ?? "";
+
+    if (!contentType.includes("application/json")) {
+      throw new Error(
+        "Servern skickade ett oväntat svar. Kontrollera att API-servern körs.",
+      );
+    }
+
+    const result: {
+      sessionId?: string;
+      url?: string;
+      error?: string;
+    } = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error ?? "Kunde inte starta Stripe-betalningen.");
+    }
+
+    if (
+      typeof result.sessionId !== "string" ||
+      typeof result.url !== "string"
+    ) {
+      throw new Error("Stripe Checkout-svaret saknar sessionsinformation.");
+    }
+
+    const checkoutUrl = new URL(result.url);
+
+    if (
+      checkoutUrl.protocol !== "https:" ||
+      checkoutUrl.hostname !== "checkout.stripe.com"
+    ) {
+      throw new Error("Servern returnerade en ogiltig Stripe Checkout-adress.");
+    }
+
+    return {
+      sessionId: result.sessionId,
+      url: result.url,
+    };
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (items.length === 0) {
+    if (items.length === 0 || isSubmitting) {
       return;
     }
 
+    setIsSubmitting(true);
+    setSubmitError(null);
+
     try {
-      setIsSubmitting(true);
-      setSubmitError(null);
+      let currentOrderId = orderId;
 
-      const orderId = await createOrder({
-        customerName: `${firstName.trim()} ${lastName.trim()}`.trim(),
-        customerEmail: email.trim(),
-        customerAddress: address.trim(),
-        postalCode: postalCode.trim(),
-        city: city.trim(),
-        totalPrice,
-        items,
-      });
+      if (!currentOrderId) {
+        currentOrderId = await createOrder({
+          customerName: `${firstName.trim()} ${lastName.trim()}`.trim(),
+          customerEmail: email.trim(),
+          customerAddress: address.trim(),
+          postalCode: postalCode.trim(),
+          city: city.trim(),
+          totalPrice,
+          items,
+        });
 
-      setSuccessOrderId(orderId);
-      clearCart();
+        setOrderId(currentOrderId);
+      }
+
+      const checkout = await createStripeCheckout(currentOrderId);
+
+      // Stripe hosts the secure payment form.
+      // Payment status is updated by the backend webhook,
+      // never by the frontend.
+      window.location.assign(checkout.url);
     } catch (error) {
       setSubmitError(
-        error instanceof Error ? error.message : "Kunde inte skapa ordern.",
+        error instanceof Error
+          ? error.message
+          : "Kunde inte starta betalningen.",
       );
-    } finally {
       setIsSubmitting(false);
     }
-  }
-
-  if (successOrderId) {
-    return (
-      <main className="mx-auto max-w-3xl px-6 py-16">
-        <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-10 text-center shadow-sm">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-700">
-            ✓
-          </div>
-
-          <p className="mt-6 text-sm font-bold uppercase tracking-[0.2em] text-emerald-700">
-            Beställning mottagen
-          </p>
-
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
-            Tack för din beställning
-          </h1>
-
-          <p className="mt-3 text-slate-600">
-            Din order har skapats och sparats i systemet.
-          </p>
-
-          <div className="mx-auto mt-7 max-w-md rounded-2xl border border-emerald-200 bg-white p-5">
-            <p className="text-sm font-medium text-slate-500">Order-ID</p>
-
-            <p className="mt-2 break-all font-mono text-sm font-semibold text-slate-950">
-              {successOrderId}
-            </p>
-          </div>
-
-          <Link
-            to="/products"
-            className="mt-8 inline-flex rounded-xl bg-slate-950 px-6 py-3 font-semibold text-white transition-colors hover:bg-slate-800"
-          >
-            Fortsätt handla
-          </Link>
-        </div>
-      </main>
-    );
   }
 
   if (items.length === 0) {
     return (
       <main className="mx-auto max-w-7xl px-6 py-16">
         <div className="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+          <h1 className="text-3xl font-bold text-slate-950">
             Din varukorg är tom
           </h1>
 
@@ -103,7 +139,7 @@ function CheckoutPage() {
 
           <Link
             to="/products"
-            className="mt-7 inline-flex rounded-2xl bg-slate-950 px-5 py-3 font-semibold text-white transition-colors hover:bg-slate-800"
+            className="mt-7 inline-flex rounded-2xl bg-slate-950 px-5 py-3 font-semibold text-white hover:bg-slate-800"
           >
             Se produkter
           </Link>
@@ -119,13 +155,13 @@ function CheckoutPage() {
           Checkout
         </p>
 
-        <h1 className="mt-2 text-4xl font-bold tracking-tight text-slate-950">
+        <h1 className="mt-2 text-4xl font-bold text-slate-950">
           Slutför din beställning
         </h1>
 
         <p className="mt-3 max-w-2xl text-slate-600">
-          Detta är en simulerad betalning för skoluppgiften. Ingen riktig
-          betalning genomförs.
+          Du skickas vidare till Stripe för säker kortbetalning. Butiken
+          använder Stripe i testläge, så inga riktiga pengar dras.
         </p>
       </div>
 
@@ -152,7 +188,7 @@ function CheckoutPage() {
                 onChange={(event) => setFirstName(event.target.value)}
                 required
                 autoComplete="given-name"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
                 placeholder="Förnamn"
               />
             </div>
@@ -172,7 +208,7 @@ function CheckoutPage() {
                 onChange={(event) => setLastName(event.target.value)}
                 required
                 autoComplete="family-name"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
                 placeholder="Efternamn"
               />
             </div>
@@ -192,7 +228,7 @@ function CheckoutPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 required
                 autoComplete="email"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
                 placeholder="namn@example.com"
               />
             </div>
@@ -212,7 +248,7 @@ function CheckoutPage() {
                 onChange={(event) => setAddress(event.target.value)}
                 required
                 autoComplete="street-address"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
                 placeholder="Gatuadress"
               />
             </div>
@@ -232,7 +268,7 @@ function CheckoutPage() {
                 onChange={(event) => setPostalCode(event.target.value)}
                 required
                 autoComplete="postal-code"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
                 placeholder="123 45"
               />
             </div>
@@ -252,7 +288,7 @@ function CheckoutPage() {
                 onChange={(event) => setCity(event.target.value)}
                 required
                 autoComplete="address-level2"
-                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition focus:border-slate-950 focus:ring-2 focus:ring-slate-950/10"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-950"
                 placeholder="Stad"
               />
             </div>
@@ -279,8 +315,7 @@ function CheckoutPage() {
                 </div>
 
                 <p className="shrink-0 font-semibold text-slate-950">
-                  {(item.product.price * item.quantity).toLocaleString("sv-SE")}{" "}
-                  kr
+                  {formatPrice(item.product.price * item.quantity)}
                 </p>
               </div>
             ))}
@@ -290,7 +325,7 @@ function CheckoutPage() {
             <span className="font-medium text-slate-600">Totalt</span>
 
             <span className="text-2xl font-bold text-slate-950">
-              {totalPrice.toLocaleString("sv-SE")} kr
+              {formatPrice(totalPrice)}
             </span>
           </div>
 
@@ -306,10 +341,16 @@ function CheckoutPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="mt-6 w-full rounded-2xl bg-slate-950 px-5 py-3 font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            className="mt-6 w-full rounded-2xl bg-slate-950 px-5 py-3 font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           >
-            {isSubmitting ? "Skapar order..." : "Skapa order"}
+            {isSubmitting
+              ? "Öppnar Stripe Checkout..."
+              : `Betala ${formatPrice(totalPrice)}`}
           </button>
+
+          <p className="mt-4 text-center text-xs text-slate-500">
+            Säker betalning via Stripe Checkout. Endast testläge.
+          </p>
         </aside>
       </form>
     </main>

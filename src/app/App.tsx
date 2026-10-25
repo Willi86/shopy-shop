@@ -7,6 +7,8 @@ import AdminPage from "../pages/AdminPage";
 import AdminProductsPage from "../pages/AdminProductsPage";
 import AdminSupportPage from "../pages/AdminSupportPage";
 import CartPage from "../pages/CartPage";
+import CheckoutCancelPage from "../pages/CheckoutCancelPage";
+import CheckoutSuccessPage from "../pages/CheckoutSuccessPage";
 import CheckoutPage from "../pages/CheckoutPage";
 import ContactPage from "../pages/ContactPage";
 import HomePage from "../pages/HomePage";
@@ -33,6 +35,8 @@ function App() {
 
           <Route path="/checkout" element={<CheckoutPage />} />
 
+          <Route path="/checkout/cancel" element={<CheckoutCancelPage />} />
+          <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
           <Route path="/contact" element={<ContactPage />} />
 
           <Route path="/login" element={<LoginPage />} />
