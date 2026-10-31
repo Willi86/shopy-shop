@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import ProductCard from "../features/products/components/ProductCard";
 import type { Product } from "../types/product";
 
-const API_URL = "http://localhost:3001/api/products/search";
+const API_URL = `${import.meta.env.VITE_API_URL || "http://localhost:3001"}/api/products/search`;
 const PAGE_SIZE = 8;
 
 type ApiProduct = Omit<Product, "imageUrl"> & {
