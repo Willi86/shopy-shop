@@ -1204,6 +1204,14 @@ app.use((error, _req, res, _next) => {
 // Start server
 // --------------------------------------------------
 
-app.listen(PORT, () => {
-  console.log(`Shopy Shop API running on http://localhost:${PORT}`);
-});
+// --------------------------------------------------
+// Start server locally / export for Vercel
+// --------------------------------------------------
+
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Shopy Shop API running on http://localhost:${PORT}`);
+  });
+}
