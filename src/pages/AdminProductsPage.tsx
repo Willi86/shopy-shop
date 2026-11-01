@@ -13,8 +13,13 @@ import {
   type ProductFormData,
 } from "../services/adminProductService";
 
-import { getProducts } from "../services/productService";
+import {
+  importSupplierProducts,
+  type SupplierImportFormat,
+  type SupplierImportResult,
+} from "../services/supplierImportService";
 
+import { getProducts } from "../services/productService";
 import type { Product } from "../types/product";
 
 const initialForm: ProductFormData = {
@@ -27,22 +32,24 @@ const initialForm: ProductFormData = {
 
 function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-
   const [form, setForm] = useState<ProductFormData>(initialForm);
-
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   const [imageFile, setImageFile] = useState<File | null>(null);
-
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
-
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [importingFormat, setImportingFormat] =
+    useState<SupplierImportFormat | null>(null);
 
   const [error, setError] = useState<string | null>(null);
-
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<SupplierImportResult | null>(
+    null,
+  );
 
   const pageTitle = editingProduct ? "Redigera produkt" : "Lägg till produkt";
 
@@ -53,29 +60,23 @@ function AdminProductsPage() {
 
     getProducts()
       .then((data) => {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          setProducts(data);
         }
-
-        setProducts(data);
       })
-      .catch((error) => {
-        if (cancelled) {
-          return;
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setError(
+            error instanceof Error
+              ? error.message
+              : "Kunde inte ladda produkterna.",
+          );
         }
-
-        setError(
-          error instanceof Error
-            ? error.message
-            : "Kunde inte ladda produkterna.",
-        );
       })
       .finally(() => {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          setIsLoading(false);
         }
-
-        setIsLoading(false);
       });
 
     return () => {
@@ -94,7 +95,6 @@ function AdminProductsPage() {
   async function reloadProducts() {
     try {
       const data = await getProducts();
-
       setProducts(data);
     } catch (error) {
       setError(
@@ -121,10 +121,6 @@ function AdminProductsPage() {
   }
 
   function clearImagePreview() {
-    if (imagePreviewUrl) {
-      URL.revokeObjectURL(imagePreviewUrl);
-    }
-
     setImagePreviewUrl(null);
   }
 
@@ -132,9 +128,7 @@ function AdminProductsPage() {
     setForm(initialForm);
     setEditingProduct(null);
     setImageFile(null);
-
     clearImagePreview();
-
     setError(null);
   }
 
@@ -150,9 +144,7 @@ function AdminProductsPage() {
     });
 
     setImageFile(null);
-
     clearImagePreview();
-
     setError(null);
     setSuccessMessage(null);
 
@@ -173,9 +165,7 @@ function AdminProductsPage() {
 
     if (!allowedTypes.includes(file.type)) {
       setError("Bilden måste vara JPG eller WebP.");
-
       event.target.value = "";
-
       return;
     }
 
@@ -185,18 +175,12 @@ function AdminProductsPage() {
       setError(
         "Bilden får vara högst 2 MB. Optimera bilden innan uppladdning.",
       );
-
       event.target.value = "";
-
       return;
     }
 
-    clearImagePreview();
-
     setImageFile(file);
-
     setImagePreviewUrl(URL.createObjectURL(file));
-
     setError(null);
   }
 
@@ -209,8 +193,8 @@ function AdminProductsPage() {
       return "Beskrivningen måste innehålla minst 10 tecken.";
     }
 
-    // Enhanced price validation
     const price = Number(form.price);
+
     if (!Number.isFinite(price) || price <= 0) {
       return "Priset måste vara större än 0.";
     }
@@ -219,7 +203,6 @@ function AdminProductsPage() {
       return "Priset får inte överstiga 99 999 999,99 kr.";
     }
 
-    // Check for too many decimal places
     if (price.toString().split(".")[1]?.length > 2) {
       return "Priset får ha högst 2 decimaler.";
     }
@@ -246,7 +229,6 @@ function AdminProductsPage() {
 
     if (validationError) {
       setError(validationError);
-
       return;
     }
 
@@ -264,19 +246,16 @@ function AdminProductsPage() {
         );
 
         resetForm();
-
         setSuccessMessage("Produkten har uppdaterats.");
       } else {
         if (!imageFile) {
           setError("Du måste välja en produktbild.");
-
           return;
         }
 
         await createAdminProduct(form, imageFile);
 
         resetForm();
-
         setSuccessMessage("Produkten har skapats.");
       }
 
@@ -285,6 +264,32 @@ function AdminProductsPage() {
       setError(error instanceof Error ? error.message : "Något gick fel.");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleSupplierImport(format: SupplierImportFormat) {
+    if (importingFormat) {
+      return;
+    }
+
+    setImportingFormat(format);
+    setImportError(null);
+    setImportResult(null);
+
+    try {
+      const result = await importSupplierProducts(format);
+
+      setImportResult(result);
+
+      await reloadProducts();
+    } catch (error) {
+      setImportError(
+        error instanceof Error
+          ? error.message
+          : "Kunde inte importera produkter.",
+      );
+    } finally {
+      setImportingFormat(null);
     }
   }
 
@@ -301,7 +306,7 @@ function AdminProductsPage() {
           </h1>
 
           <p className="mt-3 max-w-2xl text-slate-600">
-            Skapa och redigera produkter som visas i butiken.
+            Skapa, redigera och importera produkter som visas i butiken.
           </p>
         </div>
 
@@ -312,6 +317,146 @@ function AdminProductsPage() {
           ← Till ordrar
         </Link>
       </div>
+
+      {/* SUPPLIER IMPORT */}
+
+      <section
+        aria-labelledby="supplier-import-title"
+        className="mb-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+      >
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+              Leverantörsintegration
+            </p>
+
+            <h2
+              id="supplier-import-title"
+              className="mt-2 text-2xl font-bold tracking-tight text-slate-950"
+            >
+              Importera produktkatalog
+            </h2>
+
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Hämta produkter från leverantörens API. Nya produkter läggs till
+              och befintliga produkter uppdateras automatiskt med hjälp av
+              artikelnummer.
+            </p>
+          </div>
+
+          <span className="w-fit rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+            Elektronik
+          </span>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => handleSupplierImport("csv")}
+            disabled={importingFormat !== null}
+            className="inline-flex min-h-12 items-center justify-center rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {importingFormat === "csv" ? "Importerar CSV..." : "Importera CSV"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSupplierImport("xml")}
+            disabled={importingFormat !== null}
+            className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {importingFormat === "xml" ? "Importerar XML..." : "Importera XML"}
+          </button>
+        </div>
+
+        {importingFormat && (
+          <p role="status" className="mt-4 text-sm text-slate-600">
+            Hämtar, kontrollerar och sparar produkter. Vänta tills importen är
+            klar.
+          </p>
+        )}
+
+        {importError && (
+          <div
+            role="alert"
+            className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          >
+            <p className="font-semibold">Importen misslyckades</p>
+            <p className="mt-1">{importError}</p>
+          </div>
+        )}
+
+        {importResult && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-6 border-t border-slate-200 pt-6"
+          >
+            <h3 className="text-lg font-bold text-slate-950">
+              Importen är klar
+            </h3>
+
+            <p className="mt-1 text-sm text-slate-600">
+              Format: {importResult.format.toUpperCase()}
+            </p>
+
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                {
+                  label: "Mottagna",
+                  value: importResult.received,
+                },
+                {
+                  label: "Nya",
+                  value: importResult.created,
+                },
+                {
+                  label: "Uppdaterade",
+                  value: importResult.updated,
+                },
+                {
+                  label: "Överhoppade",
+                  value: importResult.skipped,
+                },
+              ].map((stat) => (
+                <div key={stat.label} className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-2xl font-bold tabular-nums text-slate-950">
+                    {stat.value}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-slate-600">
+                    {stat.label}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {importResult.errors.length > 0 && (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <h4 className="font-semibold text-amber-950">
+                  Produkter som hoppades över
+                </h4>
+
+                <ul className="mt-3 space-y-3">
+                  {importResult.errors.map((item, index) => (
+                    <li
+                      key={`${item.row}-${index}`}
+                      className="text-sm leading-6 text-amber-950"
+                    >
+                      <span className="font-semibold">
+                        Rad {item.row}
+                        {item.articleNumber ? ` (${item.articleNumber})` : ""}:
+                      </span>{" "}
+                      {item.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* PRODUCT EDITOR AND PRODUCT LIST */}
 
       <div className="grid gap-8 lg:grid-cols-[420px_1fr]">
         <section className="h-fit rounded-3xl border border-slate-200 bg-white p-6 shadow-sm lg:sticky lg:top-28">
@@ -414,16 +559,20 @@ function AdminProductsPage() {
                   inputMode="decimal"
                   value={form.price === 0 ? "" : form.price.toString()}
                   onChange={(event) => {
-                    const value = event.target.value.replace(/,/g, "."); // Replace comma with dot
+                    const value = event.target.value.replace(/,/g, ".");
+
                     const numValue = parseFloat(value);
+
                     if (value === "" || value === "-") {
                       updateField("price", 0);
                       return;
                     }
-                    if (!isNaN(numValue) && numValue >= 0) {
-                      // Round to 2 decimal places and clamp
+
+                    if (!Number.isNaN(numValue) && numValue >= 0) {
                       const rounded = Math.round(numValue * 100) / 100;
+
                       const clamped = Math.min(rounded, 99999999.99);
+
                       updateField("price", clamped);
                     }
                   }}
@@ -538,9 +687,7 @@ function AdminProductsPage() {
 
           {isLoading ? (
             <div className="grid gap-5 sm:grid-cols-2">
-              {Array.from({
-                length: 4,
-              }).map((_, index) => (
+              {Array.from({ length: 4 }).map((_, index) => (
                 <div
                   key={index}
                   className="h-52 animate-pulse rounded-3xl bg-slate-200"
@@ -554,7 +701,8 @@ function AdminProductsPage() {
               </h3>
 
               <p className="mt-2 text-slate-600">
-                Skapa din första produkt med formuläret.
+                Skapa din första produkt eller importera produkter från
+                leverantören.
               </p>
             </div>
           ) : (
@@ -565,13 +713,19 @@ function AdminProductsPage() {
                   className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
                 >
                   <div className="aspect-16/10 overflow-hidden bg-slate-100">
-                    <img
-                      src={product.imageUrl}
-                      alt={product.name}
-                      loading="lazy"
-                      decoding="async"
-                      className="h-full w-full object-cover"
-                    />
+                    {product.imageUrl ? (
+                      <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                        Ingen produktbild
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-5">

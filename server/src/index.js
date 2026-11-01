@@ -13,7 +13,7 @@ import { z } from "zod";
 import crypto from "node:crypto";
 import Stripe from "stripe";
 import { algoliasearch } from "algoliasearch";
-
+import { createSupplierRouter } from "./supplier/supplierRoutes.js";
 import {
   getServicePoints,
   getEstimatedDelivery,
@@ -847,7 +847,21 @@ async function requireAdmin(req, res, next) {
     });
   }
 }
+// ============================================================
+// SUPPLIER API IMPORT - LABB 1
+// ============================================================
 
+// Downloads supplier products directly from the external API.
+// Requires a valid Supabase administrator session.
+// Existing products are updated using their article numbers.
+
+app.use(
+  "/api/supplier",
+  createSupplierRouter({
+    requireAdmin,
+    paymentDb,
+  }),
+);
 // ============================================================
 // 14. CSV PRODUCT IMPORT PARSER
 // ============================================================
