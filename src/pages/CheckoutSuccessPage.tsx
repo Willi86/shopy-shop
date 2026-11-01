@@ -25,11 +25,10 @@ function CheckoutSuccessPage() {
   const [loading, setLoading] = useState(Boolean(sessionId));
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!sessionId) {
-      setLoading(false);
-      return;
-    }
+ useEffect(() => {
+  if (!sessionId) {
+    return;
+  }
 
     let cancelled = false;
     const controller = new AbortController();
