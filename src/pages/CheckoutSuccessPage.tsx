@@ -3,7 +3,9 @@ import { Link, useSearchParams } from "react-router";
 
 import { useCart } from "../features/cart/useCart";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+const API_URL = (
+  import.meta.env.VITE_API_URL || "http://localhost:3001"
+).replace(/\/+$/, "");
 
 type PaymentStatus = {
   orderId: string;
@@ -20,23 +22,20 @@ function CheckoutSuccessPage() {
   const { clearCart } = useCart();
 
   const [payment, setPayment] = useState<PaymentStatus | null>(null);
-
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(sessionId));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!sessionId) {
+      setLoading(false);
       return;
     }
 
     let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
 
     async function verifyPayment() {
       try {
-        // The webhook may take a few seconds to update
-        // the database after Stripe redirects the customer.
         for (let attempt = 0; attempt < 10; attempt++) {
           if (cancelled) return;
 
@@ -49,7 +48,9 @@ function CheckoutSuccessPage() {
           );
 
           if (!response.ok) {
-            throw new Error("Kunde inte verifiera betalningen.");
+            throw new Error(
+              `Kunde inte verifiera betalningen (HTTP ${response.status}).`,
+            );
           }
 
           const result = (await response.json()) as PaymentStatus;
@@ -58,37 +59,38 @@ function CheckoutSuccessPage() {
 
           if (result.status === "paid") {
             setPayment(result);
+            setError(null);
             setLoading(false);
-
-            // Clear the cart only after the backend
-            // confirms that the order is paid.
             clearCart();
             return;
           }
 
           if (attempt < 9) {
             await new Promise<void>((resolve) => {
-              timeoutId = setTimeout(resolve, 2000);
+              setTimeout(resolve, 2000);
             });
           }
         }
 
         if (!cancelled) {
           setError(
-            "Betalningen är ännu inte bekräftad. " +
-              "Kontrollera igen om en liten stund.",
+            "Betalningen är ännu inte bekräftad. Kontrollera igen om en liten stund.",
           );
-          setLoading(false);
         }
       } catch (err) {
-        if (cancelled) return;
+        if (cancelled || controller.signal.aborted) return;
 
         setError(
-          err instanceof Error
-            ? err.message
-            : "Ett fel uppstod vid verifieringen.",
+          err instanceof TypeError
+            ? "Kunde inte ansluta till betalningsservern. Kontrollera anslutningen och försök igen."
+            : err instanceof Error
+              ? err.message
+              : "Ett fel uppstod vid verifieringen.",
         );
-        setLoading(false);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
@@ -97,10 +99,6 @@ function CheckoutSuccessPage() {
     return () => {
       cancelled = true;
       controller.abort();
-
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId);
-      }
     };
   }, [sessionId, clearCart]);
 
@@ -139,7 +137,9 @@ function CheckoutSuccessPage() {
           </h1>
 
           <p className="mt-4 text-slate-600">
-            {!sessionId ? "Stripe-session saknas i adressen." : error}
+            {!sessionId
+              ? "Stripe-session saknas i adressen."
+              : error || "Betalningsinformation saknas."}
           </p>
 
           <p className="mt-3 text-sm text-slate-600">
