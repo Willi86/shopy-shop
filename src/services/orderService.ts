@@ -1,16 +1,19 @@
 import type { CartItem } from "../types/cart";
 
+export type ShippingMethod = "pickup" | "home";
+
 type CreateOrderInput = {
   customerName: string;
   customerEmail: string;
   customerAddress: string;
   postalCode: string;
   city: string;
-  totalPrice: number;
+  shippingMethod: ShippingMethod;
+  pickupPointId?: string;
   items: CartItem[];
 };
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 export async function createOrder(
   order: CreateOrderInput,
@@ -26,6 +29,10 @@ export async function createOrder(
       customerAddress: order.customerAddress,
       postalCode: order.postalCode,
       city: order.city,
+      shippingMethod: order.shippingMethod,
+      pickupPointId: order.shippingMethod === "pickup"
+        ? order.pickupPointId
+        : undefined,
       items: order.items.map((item) => ({
         productId: item.product.id,
         quantity: item.quantity,
@@ -33,16 +40,28 @@ export async function createOrder(
     }),
   });
 
-  const result = await response.json();
+  const contentType = response.headers.get("content-type") ?? "";
 
-  if (!response.ok) {
+  if (!contentType.includes("application/json")) {
     throw new Error(
-      result.error ?? "Kunde inte skapa ordern.",
+      "Servern skickade ett oväntat svar. Kontrollera API-servern.",
     );
   }
 
-  if (!result.orderId) {
-    throw new Error("Servern returnerade inget order-ID.");
+  const result: {
+    orderId?: unknown;
+    error?: string;
+  } = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error ?? "Kunde inte skapa ordern.");
+  }
+
+  if (
+    typeof result.orderId !== "string" ||
+    !result.orderId
+  ) {
+    throw new Error("Servern returnerade inget giltigt order-ID.");
   }
 
   return result.orderId;

@@ -1,5 +1,9 @@
 import "dotenv/config";
 
+// ============================================================
+// 1. IMPORTS
+// ============================================================
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -8,23 +12,59 @@ import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { z } from "zod";
 import crypto from "node:crypto";
 import Stripe from "stripe";
+import { algoliasearch } from "algoliasearch";
+
+import {
+  getServicePoints,
+  getEstimatedDelivery,
+  normalizePostalCode,
+  shippingConfig,
+  validateServicePoint,
+} from "./shipping/shippingService.js";
+
+// ============================================================
+// 2. APPLICATION AND ENVIRONMENT CONFIGURATION
+// ============================================================
 
 const app = express();
+
+const PORT = Number(process.env.PORT ?? 3001);
+
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN ?? "http://localhost:5173";
+
+// Supabase configuration
+const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, "");
+const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Stripe configuration
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+
+// Legacy test payment webhook
+const PAYMENT_WEBHOOK_SECRET = process.env.TEST_PAYMENT_WEBHOOK_SECRET;
+
+// Algolia configuration
+const ALGOLIA_APP_ID = process.env.ALGOLIA_APP_ID;
+
+// The write key is currently used only on the backend.
+// Prefer ALGOLIA_SEARCH_API_KEY when it is available.
+const ALGOLIA_API_KEY =
+  process.env.ALGOLIA_SEARCH_API_KEY || process.env.ALGOLIA_WRITE_API_KEY;
+
+const ALGOLIA_INDEX_NAME = process.env.ALGOLIA_INDEX_NAME || "products";
+
+// ============================================================
+// 3. VALIDATE REQUIRED ENVIRONMENT VARIABLES
+// ============================================================
 
 if (!STRIPE_SECRET_KEY?.startsWith("sk_test_")) {
   throw new Error("Missing or invalid Stripe test secret key");
 }
 
-const stripe = new Stripe(STRIPE_SECRET_KEY);
-
-const PORT = Number(process.env.PORT ?? 3001);
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN ?? "http://localhost:5173";
-
-const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, "");
-const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const PAYMENT_WEBHOOK_SECRET = process.env.TEST_PAYMENT_WEBHOOK_SECRET;
+if (!STRIPE_WEBHOOK_SECRET?.startsWith("whsec_")) {
+  throw new Error("Missing or invalid STRIPE_WEBHOOK_SECRET");
+}
 
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error("Missing Supabase environment variables");
@@ -34,13 +74,38 @@ if (!PAYMENT_WEBHOOK_SECRET || PAYMENT_WEBHOOK_SECRET.length < 32) {
   throw new Error("Missing or invalid TEST_PAYMENT_WEBHOOK_SECRET");
 }
 
-app.disable("x-powered-by");
-app.use(helmet());
-app.use(cors({ origin: FRONTEND_ORIGIN }));
+if (!ALGOLIA_APP_ID || !ALGOLIA_API_KEY) {
+  throw new Error("Missing Algolia environment variables");
+}
 
-// --------------------------------------------------
-// Supabase helper
-// --------------------------------------------------
+// ============================================================
+// 4. INITIALIZE EXTERNAL SERVICES
+// ============================================================
+
+const stripe = new Stripe(STRIPE_SECRET_KEY);
+
+const algolia = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_API_KEY);
+
+// ============================================================
+// 5. SECURITY AND CORS MIDDLEWARE
+// ============================================================
+
+app.disable("x-powered-by");
+
+app.use(helmet());
+
+app.use(
+  cors({
+    origin: FRONTEND_ORIGIN,
+  }),
+);
+
+// ============================================================
+// 6. SUPABASE DATABASE HELPER
+// ============================================================
+
+// Uses the service-role key for trusted backend operations.
+// The service-role key must never be exposed to the frontend.
 
 async function paymentDb(path, options = {}) {
   const headers = {
@@ -49,9 +114,8 @@ async function paymentDb(path, options = {}) {
     ...options.headers,
   };
 
-  // Legacy service_role keys are JWTs and may be
-  // supplied as a Bearer token.
-  // Modern sb_secret_ keys must NOT be used as JWTs.
+  // Legacy service_role keys are JWTs.
+  // Modern sb_secret_ keys must not be used as JWTs.
   if (!SUPABASE_SERVICE_ROLE_KEY.startsWith("sb_secret_")) {
     headers.Authorization = `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`;
   }
@@ -84,18 +148,16 @@ async function paymentDb(path, options = {}) {
   return data;
 }
 
+// Shared UUID validation schema
 const uuidSchema = z.string().uuid();
 
-// --------------------------------------------------
-// Stripe webhook - signed events
-// Must be registered before express.json()
-// --------------------------------------------------
+// ============================================================
+// 7. STRIPE WEBHOOK
+// IMPORTANT: Must be registered before express.json()
+// ============================================================
 
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
-
-if (!STRIPE_WEBHOOK_SECRET?.startsWith("whsec_")) {
-  throw new Error("Missing or invalid STRIPE_WEBHOOK_SECRET");
-}
+// Stripe sends signed events.
+// The raw request body is required for signature verification.
 
 app.post(
   "/api/stripe/webhook",
@@ -129,6 +191,10 @@ app.post(
     }
 
     try {
+      // ------------------------------------------------------
+      // 7.1 Successful Stripe payment
+      // ------------------------------------------------------
+
       if (
         event.type === "checkout.session.completed" ||
         event.type === "checkout.session.async_payment_succeeded"
@@ -155,7 +221,8 @@ app.post(
           });
         }
 
-        // Verify the amount against the database order.
+        // Verify the paid amount against the database.
+        // Never trust an amount supplied by the frontend.
         const params = new URLSearchParams({
           id: `eq.${orderId}`,
           select: "id,total_price,payment_status",
@@ -188,6 +255,8 @@ app.post(
           });
         }
 
+        // The Supabase RPC handles payment processing.
+        // It also protects against duplicate processing.
         const result = await paymentDb("/rest/v1/rpc/process_stripe_payment", {
           method: "POST",
           body: JSON.stringify({
@@ -208,9 +277,9 @@ app.post(
             result,
           });
 
-          // Stripe has collected the payment. Returning 500
-          // allows Stripe to retry, but a refund or manual
-          // resolution is still required.
+          // Stripe has collected the payment.
+          // Returning 500 allows Stripe to retry.
+          // A refund or manual resolution may still be needed.
           return res.status(500).json({
             error: "Paid checkout requires manual resolution",
           });
@@ -243,9 +312,13 @@ app.post(
         });
       }
 
+      // ------------------------------------------------------
+      // 7.2 Expired Stripe Checkout session
+      // ------------------------------------------------------
+
       if (event.type === "checkout.session.expired") {
         const session = event.data.object;
-        // Mark this specific Stripe session as expired.
+
         await paymentDb(
           `/rest/v1/stripe_checkout_sessions?session_id=eq.${encodeURIComponent(session.id)}&status=eq.open`,
           {
@@ -259,22 +332,27 @@ app.post(
             }),
           },
         );
+
         console.log("Stripe Checkout session expired:", {
           sessionId: session.id,
           orderId: session.metadata?.orderId ?? session.client_reference_id,
         });
 
-        // Do not cancel the order here yet:
-        // another Checkout session might still be active.
+        // Do not cancel the order automatically.
+        // Another Checkout session might still be active.
         return res.json({
           received: true,
           expired: true,
         });
       }
 
+      // ------------------------------------------------------
+      // 7.3 Failed asynchronous Stripe payment
+      // ------------------------------------------------------
+
       if (event.type === "checkout.session.async_payment_failed") {
         const session = event.data.object;
-        // Mark this specific Stripe session as failed.
+
         await paymentDb(
           `/rest/v1/stripe_checkout_sessions?session_id=eq.${encodeURIComponent(session.id)}&status=eq.open`,
           {
@@ -288,6 +366,7 @@ app.post(
             }),
           },
         );
+
         console.log("Stripe asynchronous payment failed:", {
           sessionId: session.id,
           orderId: session.metadata?.orderId ?? session.client_reference_id,
@@ -313,10 +392,13 @@ app.post(
   },
 );
 
-// --------------------------------------------------
-// Payment webhook
-// Must be registered before express.json()
-// --------------------------------------------------
+// ============================================================
+// 8. LEGACY TEST PAYMENT WEBHOOK
+// IMPORTANT: Must be registered before express.json()
+// ============================================================
+
+// This webhook uses an HMAC signature.
+// It remains available for the assignment's test-payment flow.
 
 app.post(
   "/api/payments/webhook",
@@ -341,6 +423,7 @@ app.post(
         .digest("hex");
 
     const actualBuffer = Buffer.from(signature, "utf8");
+
     const expectedBuffer = Buffer.from(expected, "utf8");
 
     if (
@@ -400,36 +483,152 @@ app.post(
   },
 );
 
-// --------------------------------------------------
-// Standard middleware
-// --------------------------------------------------
+// ============================================================
+// 9. STANDARD JSON MIDDLEWARE
+// ============================================================
 
-app.use(express.json({ limit: "100kb" }));
+// This must appear after the raw-body webhook routes.
+app.use(
+  express.json({
+    limit: "100kb",
+  }),
+);
 
-// --------------------------------------------------
-// Health
-// --------------------------------------------------
+// ============================================================
+// 10. HEALTH CHECK
+// ============================================================
 
+// GET /api/health
 app.get("/api/health", (_req, res) => {
-  res.json({
+  return res.json({
     status: "ok",
     service: "shopy-shop-api",
   });
 });
 
-// --------------------------------------------------
-// Product search
-// --------------------------------------------------
+// ============================================================
+// 11. SHIPPING API - LABB 5
+// ============================================================
+
+// The current adapter is a PostNord mock.
+// Real PostNord API credentials are not configured yet.
+
+const shippingPostalCodeSchema = z.object({
+  postalCode: z.string().trim().min(1).max(10),
+});
+
+// GET /api/shipping/options?postalCode=11122
+app.get("/api/shipping/options", async (req, res) => {
+  const parsed = shippingPostalCodeSchema.safeParse(req.query);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid shipping request",
+    });
+  }
+
+  try {
+    const postalCode = normalizePostalCode(parsed.data.postalCode);
+
+    const [servicePoints, estimatedDelivery] = await Promise.all([
+      getServicePoints(postalCode),
+      getEstimatedDelivery(postalCode),
+    ]);
+
+    return res.json({
+      provider: shippingConfig.provider,
+      postalCode,
+      methods: [
+        {
+          id: "pickup",
+          name: "Hämta hos ombud",
+          price: shippingConfig.prices.pickup,
+        },
+        {
+          id: "home",
+          name: "Hemleverans",
+          price: shippingConfig.prices.home,
+        },
+      ],
+      freeShippingThreshold: shippingConfig.freeShippingThreshold,
+      servicePoints,
+      estimatedDelivery,
+      isMock: true,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: "Invalid Swedish postal code",
+      });
+    }
+
+    console.error("Shipping options failed:", error);
+
+    return res.status(502).json({
+      error: "Could not load shipping options",
+    });
+  }
+});
+
+// ============================================================
+// 12. PRODUCT SEARCH - SUPABASE + ALGOLIA
+// ============================================================
+
+// Without a search query:
+//   Supabase provides products and standard sorting.
+//
+// With a search query:
+//   Algolia provides typo-tolerant search.
+//
+// Both branches return the same response format so the
+// existing React ProductsPage.tsx continues to work.
 
 const searchSchema = z.object({
   q: z.string().trim().max(120).default(""),
-  category: z.string().trim().max(80).optional(),
+
+  category: z.string().trim().max(80).default(""),
+
   sort: z
     .enum(["newest", "price_asc", "price_desc", "name", "name_asc"])
     .default("newest"),
+
   page: z.coerce.number().int().min(1).max(10000).default(1),
+
   limit: z.coerce.number().int().min(1).max(50).default(12),
 });
+
+// ------------------------------------------------------------
+// 12.1 Sort Algolia search results
+// ------------------------------------------------------------
+
+function sortAlgoliaProducts(products, sort) {
+  const result = [...products];
+
+  switch (sort) {
+    case "price_asc":
+      result.sort((a, b) => Number(a.price) - Number(b.price));
+      break;
+
+    case "price_desc":
+      result.sort((a, b) => Number(b.price) - Number(a.price));
+      break;
+
+    case "name":
+    case "name_asc":
+      result.sort((a, b) => String(a.name).localeCompare(String(b.name), "sv"));
+      break;
+
+    default:
+      // Preserve Algolia relevance ordering.
+      break;
+  }
+
+  return result;
+}
+
+// ------------------------------------------------------------
+// 12.2 GET /api/products/search
+// ------------------------------------------------------------
 
 app.get("/api/products/search", async (req, res) => {
   const parsed = searchSchema.safeParse(req.query);
@@ -443,77 +642,135 @@ app.get("/api/products/search", async (req, res) => {
 
   const { q, category, sort, page, limit } = parsed.data;
 
-  const filters = new URLSearchParams({
-    select: "id,name,description,price,image_url,stock,category",
-    offset: String((page - 1) * limit),
-    limit: String(limit),
-  });
-
-  if (q) {
-    const safeQuery = q.replace(/[%,().*"\\]/g, " ").trim();
-
-    if (safeQuery) {
-      filters.set(
-        "or",
-        `(name.ilike.*${safeQuery}*,description.ilike.*${safeQuery}*)`,
-      );
-    }
-  }
-
-  if (category) {
-    const safeCategory = category.replace(/[(),"]/g, "");
-    filters.set("category", `eq.${safeCategory}`);
-  }
-
-  const sorting = {
-    newest: "created_at.desc",
-    price_asc: "price.asc",
-    price_desc: "price.desc",
-    name: "name.asc",
-    name_asc: "name.asc",
-  };
-
-  filters.set("order", sorting[sort]);
-
   try {
-    const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/products?${filters}`,
-      {
-        headers: {
-          apikey: SUPABASE_PUBLISHABLE_KEY,
-          Prefer: "count=exact",
-        },
-        signal: AbortSignal.timeout(8000),
-      },
-    );
+    // ------------------------------------------------------
+    // 12.3 Supabase listing (empty search)
+    // ------------------------------------------------------
 
-    if (!response.ok) {
-      const details = await response.text();
-
-      console.error("Product search failed:", {
-        status: response.status,
-        details,
+    if (!q) {
+      const filters = new URLSearchParams({
+        select: "id,name,description,price,image_url,stock,category",
+        offset: String((page - 1) * limit),
+        limit: String(limit),
       });
 
-      return res.status(502).json({
-        error: "Could not load products",
+      if (category) {
+        const safeCategory = category.replace(/[(),"]/g, "");
+
+        filters.set("category", `eq.${safeCategory}`);
+      }
+
+      const sorting = {
+        newest: "created_at.desc",
+        price_asc: "price.asc",
+        price_desc: "price.desc",
+        name: "name.asc",
+        name_asc: "name.asc",
+      };
+
+      filters.set("order", sorting[sort]);
+
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/products?${filters}`,
+        {
+          headers: {
+            apikey: SUPABASE_PUBLISHABLE_KEY,
+            Prefer: "count=exact",
+          },
+          signal: AbortSignal.timeout(8000),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`Supabase product listing failed: ${response.status}`);
+      }
+
+      const products = await response.json();
+
+      const contentRange = response.headers.get("content-range");
+
+      const countValue = contentRange?.split("/")[1];
+
+      const parsedCount = countValue ? Number(countValue) : NaN;
+
+      const total = Number.isFinite(parsedCount)
+        ? parsedCount
+        : products.length;
+
+      return res.json({
+        data: products,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+        searchProvider: "supabase",
       });
     }
 
-    const products = await response.json();
-    const contentRange = response.headers.get("content-range");
-    const countValue = contentRange?.split("/")[1];
-    const parsedCount = countValue ? Number(countValue) : NaN;
-    const total = Number.isFinite(parsedCount) ? parsedCount : products.length;
+    // ------------------------------------------------------
+    // 12.4 Algolia typo-tolerant search
+    // ------------------------------------------------------
+
+    // The assignment currently has a small catalog.
+    // Retrieve up to 1000 matches before applying
+    // price/name sorting and pagination.
+    //
+    // A larger catalog should use Algolia replicas
+    // for globally consistent sorting.
+
+    const searchParams = {
+      query: q,
+      hitsPerPage: 1000,
+      typoTolerance: true,
+      attributesToRetrieve: [
+        "objectID",
+        "name",
+        "description",
+        "price",
+        "stock",
+        "category",
+        "image_url",
+      ],
+    };
+
+    if (category) {
+      searchParams.facetFilters = [`category:${category}`];
+    }
+
+    const result = await algolia.searchSingleIndex({
+      indexName: ALGOLIA_INDEX_NAME,
+      searchParams,
+    });
+
+    const products = (result.hits ?? []).map((hit) => ({
+      id: hit.objectID,
+      name: hit.name,
+      description: hit.description ?? "",
+      price: Number(hit.price),
+      stock: Number(hit.stock),
+      category: hit.category ?? "",
+      image_url: hit.image_url ?? "",
+    }));
+
+    const sortedProducts = sortAlgoliaProducts(products, sort);
+
+    const total = sortedProducts.length;
+
+    const start = (page - 1) * limit;
+
+    const paginatedProducts = sortedProducts.slice(start, start + limit);
 
     return res.json({
-      data: products,
+      data: paginatedProducts,
       pagination: {
         page,
         limit,
         total,
         totalPages: Math.ceil(total / limit),
       },
+      searchProvider: "algolia",
     });
   } catch (error) {
     console.error("Product search failed:", error);
@@ -524,12 +781,16 @@ app.get("/api/products/search", async (req, res) => {
   }
 });
 
-// --------------------------------------------------
-// Admin authentication
-// --------------------------------------------------
+// ============================================================
+// 13. ADMIN AUTHENTICATION
+// ============================================================
+
+// Requires a valid Supabase user token.
+// Only users with the "admin" role may import products.
 
 async function requireAdmin(req, res, next) {
   const authorization = req.headers.authorization ?? "";
+
   const match = authorization.match(/^Bearer\s+(.+)$/i);
 
   if (!match) {
@@ -576,6 +837,7 @@ async function requireAdmin(req, res, next) {
     }
 
     req.adminUserId = user.id;
+
     next();
   } catch (error) {
     console.error("Admin authentication failed:", error);
@@ -586,9 +848,11 @@ async function requireAdmin(req, res, next) {
   }
 }
 
-// --------------------------------------------------
-// CSV parsing
-// --------------------------------------------------
+// ============================================================
+// 14. CSV PRODUCT IMPORT PARSER
+// ============================================================
+
+// Supports quoted fields and comma-separated values.
 
 function parseCsv(text) {
   const rows = [];
@@ -667,7 +931,9 @@ function parseCsv(text) {
 
   return nonEmptyRows.slice(1).map((cells) => {
     if (cells.length !== headers.length) {
-      return { __invalidCsv: true };
+      return {
+        __invalidCsv: true,
+      };
     }
 
     return Object.fromEntries(
@@ -676,9 +942,17 @@ function parseCsv(text) {
   });
 }
 
-// --------------------------------------------------
-// XML parsing
-// --------------------------------------------------
+// ============================================================
+// 15. XML PRODUCT IMPORT PARSER
+// ============================================================
+
+// Expected structure:
+// <products>
+//   <product>
+//     <name>Example</name>
+//     ...
+//   </product>
+// </products>
 
 function parseXml(text) {
   const validation = XMLValidator.validate(text);
@@ -708,9 +982,12 @@ function parseXml(text) {
   return Array.isArray(products) ? products : [products];
 }
 
-// --------------------------------------------------
-// Product import
-// --------------------------------------------------
+// ============================================================
+// 16. PRODUCT IMPORT - CSV AND XML
+// ============================================================
+
+// Admin-only endpoint.
+// Valid products are inserted into Supabase.
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -722,10 +999,15 @@ const upload = multer({
 
 const productSchema = z.object({
   name: z.string().trim().min(1).max(200),
+
   description: z.string().trim().max(5000),
+
   price: z.coerce.number().finite().min(0).max(99999999.99),
+
   stock: z.coerce.number().int().min(0),
+
   category: z.string().trim().min(1).max(100),
+
   image_url: z.union([z.url().max(2048), z.literal("")]).optional(),
 });
 
@@ -744,6 +1026,7 @@ function validateProduct(input) {
   });
 }
 
+// POST /api/products/import
 app.post(
   "/api/products/import",
   requireAdmin,
@@ -844,20 +1127,36 @@ app.post(
   },
 );
 
-// --------------------------------------------------
-// Checkout - secure server-side order creation
-// --------------------------------------------------
+// ============================================================
+// 17. CHECKOUT - SECURE ORDER CREATION
+// ============================================================
+
+// Validates customer information, shipping selection,
+// and products before creating the order in Supabase.
+//
+// Product prices and shipping totals are calculated
+// by the database, not by the browser.
 
 const checkoutSchema = z.object({
   customerName: z.string().trim().min(1).max(200),
+
   customerEmail: z.email(),
+
   customerAddress: z.string().trim().min(1).max(500),
+
   postalCode: z.string().trim().min(1).max(30),
+
   city: z.string().trim().min(1).max(150),
+
+  shippingMethod: z.enum(["pickup", "home"]),
+
+  pickupPointId: z.string().trim().min(1).max(100).optional(),
+
   items: z
     .array(
       z.object({
         productId: uuidSchema,
+
         quantity: z.number().int().min(1).max(100),
       }),
     )
@@ -865,6 +1164,7 @@ const checkoutSchema = z.object({
     .max(100),
 });
 
+// POST /api/checkout
 app.post("/api/checkout", async (req, res) => {
   const parsed = checkoutSchema.safeParse(req.body);
 
@@ -875,16 +1175,72 @@ app.post("/api/checkout", async (req, res) => {
     });
   }
 
+  const data = parsed.data;
+
+  let postalCode;
+
+  try {
+    postalCode = normalizePostalCode(data.postalCode);
+  } catch {
+    return res.status(400).json({
+      error: "Invalid Swedish postal code",
+    });
+  }
+
+  let pickupPoint = null;
+
+  if (data.shippingMethod === "pickup") {
+    if (!data.pickupPointId) {
+      return res.status(400).json({
+        error: "Select a pickup point",
+      });
+    }
+
+    try {
+      pickupPoint = await validateServicePoint(postalCode, data.pickupPointId);
+    } catch (error) {
+      console.error("Pickup point validation failed:", error);
+
+      return res.status(502).json({
+        error: "Could not validate pickup point",
+      });
+    }
+
+    if (!pickupPoint) {
+      return res.status(400).json({
+        error: "Invalid pickup point for this postal code",
+      });
+    }
+  } else if (data.pickupPointId) {
+    return res.status(400).json({
+      error: "Home delivery cannot have a pickup point",
+    });
+  }
+
   try {
     const orderId = await paymentDb("/rest/v1/rpc/create_checkout_order", {
       method: "POST",
       body: JSON.stringify({
-        p_customer_name: parsed.data.customerName,
-        p_customer_email: parsed.data.customerEmail,
-        p_customer_address: parsed.data.customerAddress,
-        p_postal_code: parsed.data.postalCode,
-        p_city: parsed.data.city,
-        p_items: parsed.data.items,
+        p_customer_name: data.customerName,
+
+        p_customer_email: data.customerEmail,
+
+        p_customer_address: data.customerAddress,
+
+        p_postal_code: postalCode,
+
+        p_city: data.city,
+
+        p_items: data.items,
+
+        p_shipping_method: data.shippingMethod,
+
+        p_pickup_point: pickupPoint
+          ? {
+              id: pickupPoint.id,
+              name: pickupPoint.name,
+            }
+          : null,
       }),
     });
 
@@ -900,9 +1256,12 @@ app.post("/api/checkout", async (req, res) => {
   }
 });
 
-// --------------------------------------------------
-// Create test payment
-// --------------------------------------------------
+// ============================================================
+// 18. LEGACY TEST PAYMENT CREATION
+// ============================================================
+
+// Creates or reuses a pending test payment.
+// This is separate from Stripe Checkout.
 
 app.post("/api/payments/create", async (req, res) => {
   const parsed = z
@@ -1004,9 +1363,12 @@ app.post("/api/payments/create", async (req, res) => {
   }
 });
 
-// --------------------------------------------------
-// Stripe Checkout - create hosted payment session
-// --------------------------------------------------
+// ============================================================
+// 19. STRIPE CHECKOUT - CREATE PAYMENT SESSION
+// ============================================================
+
+// Uses the amount stored in the Supabase order.
+// The frontend cannot override the payment amount.
 
 app.post("/api/stripe/checkout", async (req, res) => {
   const parsed = z
@@ -1024,8 +1386,6 @@ app.post("/api/stripe/checkout", async (req, res) => {
   try {
     const orderId = parsed.data.orderId;
 
-    // Read the order from Supabase.
-    // Never trust payment amounts sent by the frontend.
     const params = new URLSearchParams({
       id: `eq.${orderId}`,
       select: "id,total_price,payment_status,order_status",
@@ -1048,8 +1408,7 @@ app.post("/api/stripe/checkout", async (req, res) => {
       });
     }
 
-    // Stripe requires amounts in the smallest currency unit.
-    // For SEK, 1 krona = 100 öre.
+    // Stripe expects SEK amounts in öre.
     const amountInOre = Math.round(Number(order.total_price) * 100);
 
     if (!Number.isSafeInteger(amountInOre) || amountInOre < 100) {
@@ -1058,9 +1417,9 @@ app.post("/api/stripe/checkout", async (req, res) => {
       });
     }
 
-    // Create Stripe Checkout session in test mode.
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+
       client_reference_id: orderId,
 
       metadata: {
@@ -1071,11 +1430,14 @@ app.post("/api/stripe/checkout", async (req, res) => {
         {
           price_data: {
             currency: "sek",
+
             product_data: {
               name: `Shopy Shop order ${orderId.slice(0, 8)}`,
             },
+
             unit_amount: amountInOre,
           },
+
           quantity: 1,
         },
       ],
@@ -1085,7 +1447,6 @@ app.post("/api/stripe/checkout", async (req, res) => {
       cancel_url: `${FRONTEND_ORIGIN}/checkout/cancel?order_id=${encodeURIComponent(orderId)}`,
     });
 
-    // Save the Stripe session so we can track its status.
     await paymentDb("/rest/v1/stripe_checkout_sessions", {
       method: "POST",
       headers: {
@@ -1110,6 +1471,12 @@ app.post("/api/stripe/checkout", async (req, res) => {
     });
   }
 });
+
+// ============================================================
+// 20. STRIPE CHECKOUT - VERIFY PAYMENT STATUS
+// ============================================================
+
+// Confirms both Stripe and Supabase report the payment as paid.
 
 app.get("/api/stripe/checkout/status", async (req, res) => {
   try {
@@ -1159,12 +1526,16 @@ app.get("/api/stripe/checkout/status", async (req, res) => {
 
     return res.json({
       orderId: order.id,
+
       amount: Number(order.total_price),
+
       currency: "sek",
+
       status:
         session.payment_status === "paid" && order.payment_status === "paid"
           ? "paid"
           : "pending",
+
       paidAt: order.paid_at,
     });
   } catch (error) {
@@ -1176,9 +1547,9 @@ app.get("/api/stripe/checkout/status", async (req, res) => {
   }
 });
 
-// --------------------------------------------------
-// Error handler
-// --------------------------------------------------
+// ============================================================
+// 21. GLOBAL ERROR HANDLER
+// ============================================================
 
 app.use((error, _req, res, _next) => {
   if (error instanceof multer.MulterError) {
@@ -1200,16 +1571,14 @@ app.use((error, _req, res, _next) => {
   });
 });
 
-// --------------------------------------------------
-// Start server
-// --------------------------------------------------
+// ============================================================
+// 22. SERVER STARTUP AND VERCEL EXPORT
+// ============================================================
 
-// --------------------------------------------------
-// Start server locally / export for Vercel
-// --------------------------------------------------
-
+// Export the Express app for Vercel serverless deployment.
 export default app;
 
+// Start a local HTTP server only outside Vercel.
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Shopy Shop API running on http://localhost:${PORT}`);
