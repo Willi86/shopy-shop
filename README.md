@@ -433,3 +433,4 @@ Systemutvecklare – Medieinstitutet
 **Inlämningsuppgift 1 – Integrera shoppen med omvärlden**
 
 Inlämningsdatum: oktober 2026
+https://shopy-shop-gamma.vercel.app/
