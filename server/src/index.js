@@ -3,7 +3,7 @@ import "dotenv/config";
 // ============================================================
 // 1. IMPORTS
 // ============================================================
-
+import { createProductImageRouter } from "./integrations/productImageRoutes.js";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -13,7 +13,7 @@ import { z } from "zod";
 import crypto from "node:crypto";
 import Stripe from "stripe";
 import { algoliasearch } from "algoliasearch";
-import { createSupplierRouter } from "./supplier/supplierRoutes.js";
+import { createSupplierRouter } from "./integrations/supplierRoutes.js";
 import {
   getServicePoints,
   getEstimatedDelivery,
@@ -21,6 +21,7 @@ import {
   shippingConfig,
   validateServicePoint,
 } from "./shipping/shippingService.js";
+import { createAlgoliaRouter } from "./integrations/algoliaRoutes.js";
 
 // ============================================================
 // 2. APPLICATION AND ENVIRONMENT CONFIGURATION
@@ -860,6 +861,21 @@ app.use(
   createSupplierRouter({
     requireAdmin,
     paymentDb,
+  }),
+);
+
+app.use(
+  "/api/algolia",
+  createAlgoliaRouter({
+    requireAdmin,
+    paymentDb,
+  }),
+);
+app.use(
+  "/api/product-images",
+  createProductImageRouter({
+    express,
+    requireAdmin,
   }),
 );
 // ============================================================

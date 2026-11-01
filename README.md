@@ -2,7 +2,7 @@
 
 Shopy Shop är en e-handelsapplikation utvecklad som en del av utbildningen Systemutvecklare vid Medieinstitutet.
 
-Projektet bygger på en befintlig webbshop som har vidareutvecklats med externa tjänster för produktimport, produktsökning, betalningar och molnlagring av produktbilder.
+Projektet bygger på en befintlig webbshop som har vidareutvecklats med externa tjänster för produktimport, produktsökning, betalningar, frakt och molnlagring av produktbilder.
 
 ## Teknikstack
 
@@ -26,6 +26,7 @@ Projektet bygger på en befintlig webbshop som har vidareutvecklats med externa 
 - Algolia – produktsökning
 - Stripe – betalningar i testläge
 - Externt leverantörs-API – produktimport via CSV och XML
+- Serverbaserad fraktintegration (mock)
 
 ## Projektets funktioner
 
@@ -50,7 +51,7 @@ Webbshoppen använder Algolia för produktsökning.
 
 Sökningen sker genom det egna Express-API:et. Detta gör att applikationen kan kontrollera och validera sökparametrar innan förfrågan skickas vidare.
 
-Integrationen är avsedd att stödja fritextsökning och paginering.
+Integrationen stödjer fritextsökning och paginering.
 
 ### Stripe Checkout – Labb 3
 
@@ -85,7 +86,7 @@ Följande har verifierats lokalt:
 - Upprepad betalningsbehandling ger `already_paid`.
 - En upprepad behandling minskar inte lagersaldot igen.
 
-**Kvar att kontrollera:** En utgången betalningssession lämnar för närvarande ordern som `pending`. Uppgiftskravet anger att en utgången order ska markeras som avbruten.
+**Känd begränsning:** En utgången betalningssession kan lämna ordern som `pending`. Detta behöver kontrolleras mot uppgiftens krav på avbrutna ordrar.
 
 ### Produktbilder – Labb 4
 
@@ -93,19 +94,33 @@ Produktbilder lagras i Supabase Storage.
 
 **Storage-bucket:** `product-images`
 
-Administratören kan ladda upp produktbilder genom administrationsgränssnittet.
+Administratören kan skapa, redigera och ta bort produkter samt hantera produktbilder genom administrationsgränssnittet.
 
-Bildens publika URL lagras i produkttabellen och används för att visa bilden i webbshoppen.
+Bilduppladdning sker genom Express-backend i stället för direkt från webbläsaren till Supabase Storage.
 
-Den befintliga lösningen använder Supabase Storage för både uppladdade och förregistrerade produktbilder.
+Flödet är:
 
-Ytterligare validering av filformat, filstorlek och bildbyte behöver verifieras mot labbens samtliga krav.
+1. Administratören väljer en produktbild.
+2. React skickar bilden till Express-API:et.
+3. Backend verifierar administratörens behörighet.
+4. Bildens format och storlek valideras.
+5. Bilden laddas upp till Supabase Storage.
+6. Bildens publika URL sparas i produkttabellen.
+7. Bilden visas i webbshoppen.
+
+Implementationen stödjer JPEG/JPG med en maximal filstorlek på 5 MB.
+
+Backend använder unika filnamn för nya bilder och erbjuder en separat endpoint för borttagning av oanvända bilder.
+
+När en produkt uppdateras kan en ny bild laddas upp och ersätta den gamla. När en produkt tas bort hanteras även borttagning av dess bild genom backend.
 
 ### Frakt – Labb 5
 
-Fraktintegrationen är ännu inte implementerad.
+Webbshoppen har en serverbaserad fraktintegration med mock-data.
 
-Den kommer att utvecklas enligt kravspecifikationen för Labb 5.
+Fraktlogiken hanteras i backend och är separerad från frontend, vilket gör det möjligt att senare ersätta mock-tjänsten med en riktig fraktleverantör.
+
+Den befintliga implementationen används för att simulera fraktinformation i beställningsflödet.
 
 ## Kom igång lokalt
 
@@ -175,6 +190,7 @@ Frontend använder:
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+VITE_API_URL=http://localhost:3001
 ```
 
 Ersätt platshållarna med uppgifterna från Supabase.
@@ -228,11 +244,11 @@ npm run dev
 
 Backend använder normalt:
 
-http://localhost:3001
+`http://localhost:3001`
 
 Kontrollera att servern fungerar:
 
-http://localhost:3001/api/health
+`http://localhost:3001/api/health`
 
 ### 5. Starta frontend
 
@@ -244,7 +260,7 @@ npm run dev
 
 Frontend använder normalt:
 
-http://localhost:5173
+`http://localhost:5173`
 
 ### 6. Testa Stripe lokalt
 
@@ -302,19 +318,19 @@ Kunden ska då kunna försöka igen med ett giltigt testkort.
 
 ## Deployment
 
-**Deployad webbshop:** Ej tillagd ännu.
+**Deployad webbshop:** [LÄGG IN DIN DEPLOYADE URL HÄR]
 
 **GitHub-repository:**
 
 https://github.com/Willi86/shopy-shop
 
-Den slutliga versionen ska deployas så att samtliga integrationer kan testas utan en lokal utvecklingsmiljö.
+Applikationen är driftsatt med frontend och backend.
 
-Miljövariabler ska konfigureras i hostingplattformen.
+Miljövariabler konfigureras i respektive hostingmiljö.
 
-Stripe ska använda en webhook-endpoint som är tillgänglig från internet.
+Stripe använder en webhook-endpoint som är tillgänglig från internet.
 
-Hemliga nycklar får aldrig läggas direkt i frontendkoden.
+Hemliga API-nycklar och autentiseringsuppgifter lagras på backend och ska aldrig exponeras i frontend.
 
 ---
 
@@ -396,15 +412,15 @@ Projektet har också visat värdet av att bygga en backend som fungerar som ett 
 
 ## Status inför inlämning
 
-| Del                       | Status                                             |
-| ------------------------- | -------------------------------------------------- |
-| Labb 1 – CSV/XML-import   | Implementerad, sluttest behöver dokumenteras       |
-| Labb 2 – Algolia          | Implementerad, sluttest behöver dokumenteras       |
-| Labb 3 – Stripe           | Huvudflöden lokalt testade, komplettering återstår |
-| Labb 4 – Supabase Storage | Uppladdning fungerar, alla krav behöver verifieras |
-| Labb 5 – Frakt            | Ej implementerad                                   |
-| Deployment                | Återstår att verifiera                             |
-| README och reflektion     | Dokumentation uppdaterad                           |
+| Del                       | Status                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| Labb 1 – CSV/XML-import   | Implementerad                                                                |
+| Labb 2 – Algolia          | Implementerad                                                                |
+| Labb 3 – Stripe           | Implementerad och lokalt testad; utgångna orderstatusar behöver kontrolleras |
+| Labb 4 – Supabase Storage | Implementerad via Express med JPEG-stöd                                      |
+| Labb 5 – Frakt            | Serverbaserad mock implementerad                                             |
+| Deployment                | Driftsatt                                                                    |
+| README och reflektion     | Uppdaterade                                                                  |
 
 ## Författare
 

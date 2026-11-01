@@ -10,6 +10,7 @@ import { Link } from "react-router";
 import {
   createAdminProduct,
   updateAdminProduct,
+  deleteAdminProduct,
   type ProductFormData,
 } from "../services/adminProductService";
 
@@ -40,8 +41,13 @@ function AdminProductsPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [importingFormat, setImportingFormat] =
     useState<SupplierImportFormat | null>(null);
+
+  const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -91,6 +97,25 @@ function AdminProductsPage() {
       }
     };
   }, [imagePreviewUrl]);
+
+  useEffect(() => {
+    if (!deletingProduct) {
+      return;
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !isDeleting) {
+        setDeletingProduct(null);
+        setDeleteError(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [deletingProduct, isDeleting]);
 
   async function reloadProducts() {
     try {
@@ -293,6 +318,88 @@ function AdminProductsPage() {
     }
   }
 
+  function openDeleteConfirmation(product: Product) {
+    setDeletingProduct(product);
+    setDeleteError(null);
+    setError(null);
+    setSuccessMessage(null);
+  }
+
+  function closeDeleteConfirmation() {
+    if (isDeleting) {
+      return;
+    }
+
+    setDeletingProduct(null);
+    setDeleteError(null);
+  }
+
+  async function handleDeleteProduct() {
+    if (!deletingProduct || isDeleting) {
+      return;
+    }
+
+    const product = deletingProduct;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      await deleteAdminProduct(product.id, product.imageUrl);
+
+      if (editingProduct?.id === product.id) {
+        resetForm();
+      }
+
+      setProducts((currentProducts) =>
+        currentProducts.filter(
+          (currentProduct) => currentProduct.id !== product.id,
+        ),
+      );
+
+      setDeletingProduct(null);
+      setSuccessMessage(`Produkten "${product.name}" har tagits bort.`);
+
+      await reloadProducts();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Kunde inte ta bort produkten.";
+
+      setDeleteError(message);
+
+      // Refresh the list even on failure because Supabase
+      // deletion may have succeeded while Algolia failed.
+      try {
+        const updatedProducts = await getProducts();
+        setProducts(updatedProducts);
+
+        const stillExists = updatedProducts.some(
+          (item) => item.id === product.id,
+        );
+
+        if (!stillExists) {
+          if (editingProduct?.id === product.id) {
+            resetForm();
+          }
+
+          setDeletingProduct(null);
+          setError(message);
+        }
+      } catch (reloadError) {
+        console.error(
+          "Could not refresh products after deletion failure:",
+          reloadError,
+        );
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-7xl px-6 py-10 lg:py-12">
       <div className="mb-8 flex flex-col justify-between gap-5 border-b border-slate-200 pb-8 sm:flex-row sm:items-end">
@@ -306,7 +413,8 @@ function AdminProductsPage() {
           </h1>
 
           <p className="mt-3 max-w-2xl text-slate-600">
-            Skapa, redigera och importera produkter som visas i butiken.
+            Skapa, redigera, ta bort och importera produkter som visas i
+            butiken.
           </p>
         </div>
 
@@ -670,6 +778,8 @@ function AdminProductsPage() {
           </form>
         </section>
 
+        {/* PRODUCT LIST */}
+
         <section>
           <div className="mb-5 flex items-center justify-between">
             <div>
@@ -749,18 +859,31 @@ function AdminProductsPage() {
                       {product.description}
                     </p>
 
-                    <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+                    <div className="mt-5 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
                       <span className="text-sm text-slate-500">
                         {product.stock} i lager
                       </span>
 
-                      <button
-                        type="button"
-                        onClick={() => handleEdit(product)}
-                        className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-                      >
-                        Redigera
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(product)}
+                          disabled={isDeleting}
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Redigera
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openDeleteConfirmation(product)}
+                          disabled={isDeleting}
+                          aria-label={`Ta bort ${product.name}`}
+                          className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Ta bort
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>
@@ -769,6 +892,95 @@ function AdminProductsPage() {
           )}
         </section>
       </div>
+
+      {/* DELETE CONFIRMATION DIALOG */}
+
+      {deletingProduct && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeDeleteConfirmation();
+            }
+          }}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-product-title"
+            aria-describedby="delete-product-description"
+            className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8"
+          >
+            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-6 w-6"
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M19 6l-1 14H6L5 6" />
+                <path d="M10 10v6" />
+                <path d="M14 10v6" />
+              </svg>
+            </div>
+
+            <h2
+              id="delete-product-title"
+              className="text-2xl font-bold tracking-tight text-slate-950"
+            >
+              Ta bort produkt?
+            </h2>
+
+            <p
+              id="delete-product-description"
+              className="mt-3 text-sm leading-6 text-slate-600"
+            >
+              Är du säker på att du vill ta bort{" "}
+              <strong className="font-semibold text-slate-950">
+                {deletingProduct.name}
+              </strong>
+              ? Produkten tas bort från databasen och sökindexet. Åtgärden kan
+              inte ångras.
+            </p>
+
+            {deleteError && (
+              <div
+                role="alert"
+                className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-700"
+              >
+                {deleteError}
+              </div>
+            )}
+
+            <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeDeleteConfirmation}
+                disabled={isDeleting}
+                className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Avbryt
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDeleteProduct}
+                disabled={isDeleting}
+                className="inline-flex items-center justify-center rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeleting ? "Tar bort..." : "Ja, ta bort produkten"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
