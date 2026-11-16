@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 type Customer = {
   id: string;
@@ -25,7 +25,9 @@ type OrderHistoryResponse = {
 
 type OrdersStatus = "loading" | "success" | "error";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "";
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL ?? "https://shopy-shop-q2q6.vercel.app"
+).replace(/\/$/, "");
 
 const dateFormatter = new Intl.DateTimeFormat("sv-SE", {
   dateStyle: "medium",
@@ -96,6 +98,8 @@ function getFulfillmentLabel(status: string | null): string {
 }
 
 function MyAccountPage() {
+  const navigate = useNavigate();
+
   const [customer, setCustomer] = useState<Customer | null>(null);
 
   const [status, setStatus] = useState<AccountStatus>("loading");
@@ -106,8 +110,10 @@ function MyAccountPage() {
 
   const [reloadKey, setReloadKey] = useState(0);
 
-  // Use the primitive ID as the effect dependency,
-  // rather than depending on the whole customer object.
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+
   const customerId = customer?.id;
 
   const retryOrders = useCallback(() => {
@@ -115,7 +121,7 @@ function MyAccountPage() {
     setReloadKey((current) => current + 1);
   }, []);
 
-  // Load the authenticated customer.
+  // Load the authenticated Google customer.
   useEffect(() => {
     const controller = new AbortController();
 
@@ -166,7 +172,7 @@ function MyAccountPage() {
     };
   }, []);
 
-  // Load orders only after the customer is authenticated.
+  // Load the current customer's orders.
   useEffect(() => {
     if (status !== "authenticated" || !customerId) {
       return;
@@ -231,6 +237,44 @@ function MyAccountPage() {
     };
   }, [status, customerId, reloadKey]);
 
+  // Log out of the Google customer session.
+  async function handleLogout() {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+    setLogoutError(null);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error("Could not end the customer session");
+      }
+
+      // Clear customer information from React state.
+      setCustomer(null);
+      setOrders([]);
+      setOrdersStatus("loading");
+      setStatus("unauthenticated");
+
+      // Navigate only after the backend confirms logout.
+      navigate("/login", {
+        replace: true,
+      });
+    } catch (error) {
+      console.error("Customer logout error:", error);
+
+      setLogoutError("Det gick inte att logga ut. Försök igen.");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
   if (status === "loading") {
     return (
       <main className="mx-auto w-full max-w-5xl px-4 py-16">
@@ -293,13 +337,51 @@ function MyAccountPage() {
           Mitt konto
         </p>
 
-        <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-          Välkommen, {customer.name}!
-        </h1>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+              Välkommen, {customer.name}!
+            </h1>
 
-        <p className="mt-3 text-slate-600">
-          Här hittar du dina kontouppgifter och beställningar.
-        </p>
+            <p className="mt-3 text-slate-600">
+              Här hittar du dina kontouppgifter och beställningar.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void handleLogout()}
+            disabled={isLoggingOut}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <svg
+              aria-hidden="true"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="m16 17 5-5-5-5" />
+              <path d="M21 12H9" />
+            </svg>
+
+            {isLoggingOut ? "Loggar ut..." : "Logga ut"}
+          </button>
+        </div>
+
+        {logoutError && (
+          <div
+            role="alert"
+            className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          >
+            {logoutError}
+          </div>
+        )}
       </header>
 
       <div className="space-y-6">
