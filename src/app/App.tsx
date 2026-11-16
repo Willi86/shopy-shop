@@ -13,6 +13,7 @@ import CheckoutPage from "../pages/CheckoutPage";
 import ContactPage from "../pages/ContactPage";
 import HomePage from "../pages/HomePage";
 import LoginPage from "../pages/LoginPage";
+import MyAccountPage from "../pages/MyAccountPage";
 import ProductDetailsPage from "../pages/ProductDetailsPage";
 import ProductsPage from "../pages/ProductsPage";
 
@@ -36,10 +37,15 @@ function App() {
           <Route path="/checkout" element={<CheckoutPage />} />
 
           <Route path="/checkout/cancel" element={<CheckoutCancelPage />} />
+
           <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
+
           <Route path="/contact" element={<ContactPage />} />
 
           <Route path="/login" element={<LoginPage />} />
+
+          {/* Google-authenticated customer account */}
+          <Route path="/my-account" element={<MyAccountPage />} />
 
           <Route
             path="/admin"

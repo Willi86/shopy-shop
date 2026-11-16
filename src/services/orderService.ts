@@ -20,6 +20,7 @@ export async function createOrder(
 ): Promise<string> {
   const response = await fetch(`${API_URL}/api/checkout`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
@@ -57,10 +58,7 @@ export async function createOrder(
     throw new Error(result.error ?? "Kunde inte skapa ordern.");
   }
 
-  if (
-    typeof result.orderId !== "string" ||
-    !result.orderId
-  ) {
+  if (typeof result.orderId !== "string" || !result.orderId) {
     throw new Error("Servern returnerade inget giltigt order-ID.");
   }
 

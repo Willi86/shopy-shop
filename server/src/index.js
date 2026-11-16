@@ -22,8 +22,9 @@ import {
   validateServicePoint,
 } from "./shipping/shippingService.js";
 import { createAlgoliaRouter } from "./integrations/algoliaRoutes.js";
-
-// ============================================================
+import googleAuthRoutes, {
+  optionalCustomer,
+} from "../auth/googleAuthRoutes.js"; // ============================================================
 // 2. APPLICATION AND ENVIRONMENT CONFIGURATION
 // ============================================================
 
@@ -79,6 +80,19 @@ if (!ALGOLIA_APP_ID || !ALGOLIA_API_KEY) {
   throw new Error("Missing Algolia environment variables");
 }
 
+// Optional: fail fast on Google OAuth misconfiguration.
+// Remove the comment markers to enable.
+//
+// if (
+//   !process.env.GOOGLE_CLIENT_ID ||
+//   !process.env.GOOGLE_CLIENT_SECRET ||
+//   !process.env.GOOGLE_CALLBACK_URL ||
+//   !process.env.CUSTOMER_SESSION_SECRET ||
+//   process.env.CUSTOMER_SESSION_SECRET.length < 32
+// ) {
+//   throw new Error("Missing Google OAuth environment configuration");
+// }
+
 // ============================================================
 // 4. INITIALIZE EXTERNAL SERVICES
 // ============================================================
@@ -98,6 +112,7 @@ app.use(helmet());
 app.use(
   cors({
     origin: FRONTEND_ORIGIN,
+    credentials: true,
   }),
 );
 
@@ -494,6 +509,15 @@ app.use(
     limit: "100kb",
   }),
 );
+
+// ============================================================
+// 9.1 CUSTOMER AUTH (GOOGLE OAUTH)
+// ============================================================
+
+// Mounted immediately after express.json() so the auth routes
+// have access to parsed JSON bodies, while the Stripe and legacy
+// payment webhooks above keep their raw-body signature checks.
+app.use("/api/auth", googleAuthRoutes);
 
 // ============================================================
 // 10. HEALTH CHECK
@@ -1195,7 +1219,7 @@ const checkoutSchema = z.object({
 });
 
 // POST /api/checkout
-app.post("/api/checkout", async (req, res) => {
+app.post("/api/checkout", optionalCustomer, async (req, res) => {
   const parsed = checkoutSchema.safeParse(req.body);
 
   if (!parsed.success) {
@@ -1252,25 +1276,19 @@ app.post("/api/checkout", async (req, res) => {
       method: "POST",
       body: JSON.stringify({
         p_customer_name: data.customerName,
-
         p_customer_email: data.customerEmail,
-
         p_customer_address: data.customerAddress,
-
         p_postal_code: postalCode,
-
         p_city: data.city,
-
         p_items: data.items,
-
         p_shipping_method: data.shippingMethod,
-
         p_pickup_point: pickupPoint
           ? {
               id: pickupPoint.id,
               name: pickupPoint.name,
             }
           : null,
+        p_customer_id: res.locals.customerId ?? null,
       }),
     });
 
