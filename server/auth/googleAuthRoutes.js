@@ -54,11 +54,23 @@ function isProduction() {
   return process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
 }
 
-function cookieOptions(maxAge) {
+// OAuth state cookie: used during Google's redirect flow.
+function oauthStateCookieOptions(maxAge) {
   return {
     httpOnly: true,
     secure: isProduction(),
     sameSite: "lax",
+    path: "/",
+    maxAge,
+  };
+}
+
+// Customer session cookie: sent from the frontend to the backend.
+function customerSessionCookieOptions(maxAge) {
+  return {
+    httpOnly: true,
+    secure: isProduction(),
+    sameSite: isProduction() ? "none" : "lax",
     path: "/",
     maxAge,
   };
@@ -176,6 +188,7 @@ export async function requireCustomer(req, res, next) {
     });
   }
 }
+
 export async function optionalCustomer(req, res, next) {
   try {
     const customerId = await getCustomerFromSession(req);
@@ -191,6 +204,7 @@ export async function optionalCustomer(req, res, next) {
     });
   }
 }
+
 // --------------------------------------------------
 // GET /api/auth/google
 // Start Google OAuth authentication
@@ -202,18 +216,18 @@ router.get("/google", (req, res) => {
 
     const state = randomBytes(32).toString("base64url");
 
-    res.cookie("google_oauth_state", state, cookieOptions(10 * 60 * 1000));
+    res.cookie(
+      "google_oauth_state",
+      state,
+      oauthStateCookieOptions(10 * 60 * 1000),
+    );
 
     const googleUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
 
     googleUrl.searchParams.set("client_id", config.clientId);
-
     googleUrl.searchParams.set("redirect_uri", config.callbackUrl);
-
     googleUrl.searchParams.set("response_type", "code");
-
     googleUrl.searchParams.set("scope", "openid email profile");
-
     googleUrl.searchParams.set("state", state);
 
     return res.redirect(googleUrl.toString());
@@ -234,7 +248,7 @@ router.get("/google", (req, res) => {
 router.get("/google/callback", async (req, res) => {
   const expectedState = readCookie(req, "google_oauth_state");
 
-  res.clearCookie("google_oauth_state", cookieOptions(0));
+  res.clearCookie("google_oauth_state", oauthStateCookieOptions(0));
 
   if (!matchesState(expectedState, req.query.state)) {
     return redirectWithError(res, "Invalid or expired login request");
@@ -335,7 +349,7 @@ router.get("/google/callback", async (req, res) => {
     res.cookie(
       "customer_session",
       sessionToken,
-      cookieOptions(7 * 24 * 60 * 60 * 1000),
+      customerSessionCookieOptions(7 * 24 * 60 * 60 * 1000),
     );
 
     return res.redirect(new URL("/my-account", config.frontendUrl).toString());
@@ -389,7 +403,7 @@ router.get("/me", requireCustomer, async (req, res) => {
 // --------------------------------------------------
 
 router.post("/logout", (_req, res) => {
-  res.clearCookie("customer_session", cookieOptions(0));
+  res.clearCookie("customer_session", customerSessionCookieOptions(0));
 
   return res.status(204).end();
 });
