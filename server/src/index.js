@@ -27,7 +27,7 @@ import googleAuthRoutes, {
 } from "../auth/googleAuthRoutes.js";
 
 import { createCustomerOrderRouter } from "./customers/customerOrderRoutes.js";
-
+import githubAuthRoutes from "../auth/githubAuthRoutes.js";
 // ============================================================
 // 2. APPLICATION AND ENVIRONMENT CONFIGURATION
 // ============================================================
@@ -522,10 +522,10 @@ app.use(
 // have access to parsed JSON bodies, while the Stripe and legacy
 // payment webhooks above keep their raw-body signature checks.
 app.use("/api/auth", googleAuthRoutes);
+app.use("/api/auth", githubAuthRoutes);
+
 // Customer order history — requires Google authentication.
 app.use("/api/customers", createCustomerOrderRouter({ paymentDb }));
-
-// ============================================================
 // 10. HEALTH CHECK
 // ============================================================
 
