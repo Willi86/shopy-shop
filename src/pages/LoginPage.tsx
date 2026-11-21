@@ -8,9 +8,9 @@ type LocationState = {
   from?: string;
 };
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_URL ?? "https://shopy-shop-q2q6.vercel.app"
-).replace(/\/$/, "");
+const API_BASE_URL = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_URL ?? "http://localhost:3001").replace(/\/$/, "")
+  : "";
 
 function LoginPage() {
   const navigate = useNavigate();
