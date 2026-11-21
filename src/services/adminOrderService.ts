@@ -1,9 +1,6 @@
-const API_BASE_URL = (
-  import.meta.env.VITE_API_URL ??
-    (import.meta.env.DEV
-      ? "http://localhost:3001"
-      : "https://shopy-shop-q2q6.vercel.app")
-).replace(/\/$/, "");
+const API_BASE_URL = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_URL ?? "http://localhost:3001").replace(/\/$/, "")
+  : "";
 
 export type OrderStatus = "active" | "completed" | "cancelled";
 
