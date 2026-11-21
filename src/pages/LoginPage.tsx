@@ -21,6 +21,7 @@ function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGithubLoading, setIsGithubLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const locationState = location.state as LocationState | null;
@@ -29,6 +30,16 @@ function LoginPage() {
     // Customer authentication is handled by the Express backend.
     // The backend redirects to Google and establishes the session.
     window.location.assign(`${API_BASE_URL}/api/auth/google`);
+  }
+
+  function handleGithubLogin() {
+    setError(null);
+    setIsGithubLoading(true);
+
+    // GitHub admin authentication is handled entirely by the Express backend.
+    // The backend starts the OAuth flow, validates GitHub, checks the admin
+    // allowlist, creates the admin session and redirects back to the frontend.
+    window.location.assign(`${API_BASE_URL}/api/auth/github`);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -139,13 +150,77 @@ function LoginPage() {
             <div className="h-px flex-1 bg-slate-200" />
           </div>
 
+          {/* GitHub administrator login */}
+          <section
+            aria-labelledby="github-admin-login-heading"
+            className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5"
+          >
+            <h2
+              id="github-admin-login-heading"
+              className="text-base font-semibold text-slate-900"
+            >
+              GitHub-administratör
+            </h2>
+
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Använd ditt godkända GitHub-konto för säker
+              administratörsinloggning.
+            </p>
+
+            <button
+              type="button"
+              onClick={handleGithubLogin}
+              disabled={isGithubLoading}
+              className="mt-5 flex min-h-12 w-full items-center justify-center gap-3 rounded-xl bg-slate-950 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              {isGithubLoading ? (
+                <>
+                  <svg
+                    aria-hidden="true"
+                    className="h-5 w-5 animate-spin"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="9"
+                      className="stroke-current opacity-25"
+                      strokeWidth="3"
+                    />
+                    <path
+                      d="M21 12a9 9 0 0 1-9 9"
+                      className="stroke-current"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  Ansluter till GitHub...
+                </>
+              ) : (
+                <>
+                  <svg
+                    aria-hidden="true"
+                    width="21"
+                    height="21"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.167 6.839 9.49.5.092.682-.217.682-.482 0-.237-.009-.866-.013-1.7-2.782.604-3.369-1.341-3.369-1.341-.455-1.157-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.004.071 1.532 1.03 1.532 1.03.892 1.529 2.341 1.087 2.91.831.091-.646.349-1.087.635-1.338-2.22-.252-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.646 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0 1 12 6.844a9.58 9.58 0 0 1 2.504.337c1.909-1.294 2.748-1.025 2.748-1.025.546 1.376.202 2.393.1 2.646.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.744 0 .267.18.578.688.48A10.002 10.002 0 0 0 22 12c0-5.523-4.477-10-10-10Z" />
+                  </svg>
+                  Fortsätt med GitHub
+                </>
+              )}
+            </button>
+          </section>
+
           {/* Existing administrator login */}
-          <section aria-labelledby="admin-login-heading">
+          <section aria-labelledby="admin-login-heading" className="mt-6">
             <h2
               id="admin-login-heading"
               className="text-base font-semibold text-slate-900"
             >
-              Administratör
+              Administratör med e-post
             </h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -205,7 +280,7 @@ function LoginPage() {
 
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isGithubLoading}
                 className="min-h-12 w-full rounded-xl bg-slate-950 px-5 py-3 font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 {isSubmitting ? "Loggar in..." : "Logga in som administratör"}
