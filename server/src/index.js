@@ -27,8 +27,11 @@ import googleAuthRoutes, {
 } from "../auth/googleAuthRoutes.js";
 
 import { createCustomerOrderRouter } from "./customers/customerOrderRoutes.js";
-import githubAuthRoutes from "../auth/githubAuthRoutes.js";
-// ============================================================
+import githubAuthRoutes, {
+  requireGithubAdmin,
+} from "../auth/githubAuthRoutes.js";
+
+import { createAdminOrderRouter } from "./integrations/adminOrderRoutes.js"; // ============================================================
 // 2. APPLICATION AND ENVIRONMENT CONFIGURATION
 // ============================================================
 
@@ -521,8 +524,20 @@ app.use(
 // Mounted immediately after express.json() so the auth routes
 // have access to parsed JSON bodies, while the Stripe and legacy
 // payment webhooks above keep their raw-body signature checks.
+// Google/customer authentication remains unchanged.
 app.use("/api/auth", googleAuthRoutes);
+
+// GitHub administrator authentication.
 app.use("/api/auth", githubAuthRoutes);
+
+// GitHub administrator order management.
+app.use(
+  "/api/admin/orders",
+  createAdminOrderRouter({
+    requireGithubAdmin,
+    paymentDb,
+  }),
+);
 
 // Customer order history — requires Google authentication.
 app.use("/api/customers", createCustomerOrderRouter({ paymentDb }));
