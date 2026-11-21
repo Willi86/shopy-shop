@@ -396,7 +396,11 @@ router.get("/github/callback", async (req, res) => {
 
     return res.redirect(new URL("/admin", config.frontendUrl).toString());
   } catch (error) {
-    console.error("GitHub OAuth callback failed:", error);
+    console.error("[GITHUB OAUTH CALLBACK ERROR]", {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack,
+    });
 
     return redirectWithError(res, "Could not sign in with GitHub");
   }
