@@ -31,7 +31,6 @@ import githubAuthRoutes, {
   requireGithubAdmin,
 } from "../auth/githubAuthRoutes.js";
 
-import { createAdminOrderRouter } from "./integrations/adminOrderRoutes.js"; // ============================================================
 // 2. APPLICATION AND ENVIRONMENT CONFIGURATION
 // ============================================================
 
@@ -531,13 +530,7 @@ app.use("/api/auth", googleAuthRoutes);
 app.use("/api/auth", githubAuthRoutes);
 
 // GitHub administrator order management.
-app.use(
-  "/api/admin/orders",
-  createAdminOrderRouter({
-    requireGithubAdmin,
-    paymentDb,
-  }),
-);
+//removed
 
 // Customer order history — requires Google authentication.
 app.use("/api/customers", createCustomerOrderRouter({ paymentDb }));
