@@ -434,3 +434,74 @@ Systemutvecklare – Medieinstitutet
 
 Inlämningsdatum: oktober 2026
 https://shopy-shop-gamma.vercel.app/
+
+
+
+
+
+
+## Inlämningsuppgift 2 – Konton och autentisering
+
+Kunder loggar in med Google (OAuth 2.0 + OpenID Connect) och shoppen skickar en orderbekräftelse via e-post med Resend när en order är betald. Hela inloggningen går via backend (Express på Vercel). Client secrets och API-nycklar finns bara som miljövariabler på servern (`.env` lokalt, Vercels Environment Variables i produktion) och når aldrig webbläsaren. Den deployade shoppen: https://shopy-shop-gamma.vercel.app
+
+### 1. Inloggningsflödet (Google)
+
+1. Kunden klickar på **Fortsätt med Google** på `/login`. Webbläsaren går till `GET /api/auth/google` på vår server.
+2. Servern skapar ett slumpmässigt `state` (32 slumpbytes, base64url) och sparar det i en `httpOnly`-cookie (`google_oauth_state`, 10 minuter, `secure` i produktion, `SameSite=Lax`). Servern skickar sedan kunden vidare till Google med `scope=openid email profile` (minsta möjliga scope) och samma `state`.
+3. Kunden loggar in hos Google och godkänner. Google skickar tillbaka kunden till `GET /api/auth/google/callback?code=…&state=…`.
+4. Servern jämför `state` i adressen med `state` i cookien (med `timingSafeEqual`) och raderar cookien direkt. Stämmer de inte överens, eller om kunden avbröt (`error` i adressen), avvisas inloggningen och kunden skickas till `/login` med ett begripligt felmeddelande.
+5. Servern byter `code` mot tokens hos Googles token-endpoint. Det sker på servern, med vår client secret, och med timeout på 5 sekunder.
+6. Servern läser kunden ur Googles **ID-token** (en JWT) och verifierar den med `jose` mot Googles publika nycklar (JWKS): signaturen (RS256), utfärdaren `iss` (Google), mottagaren `aud` (vårt client ID) och utgångstiden `exp`. Uppgifterna valideras sedan med Zod (`sub`, `email`, `email_verified`, `name`). En overifierad e-postadress avvisas.
+7. Servern letar upp kunden i tabellen `customers` via Googles **`sub`**, inte via e-postadressen, eftersom `sub` är stabilt och en e-postadress kan ändras. Finns ingen kund skapas en ny vid första inloggningen (`google_sub`, e-post, namn). Nästa gång hittas samma kund och ingen ny skapas (`google_sub` är `UNIQUE` i databasen).
+8. Servern skapar shoppens egen session (se avsnitt 3), sätter den i en cookie och skickar kunden till Mina sidor (`/my-account`).
+
+**Vad `state` skyddar mot.** `state` skyddar mot CSRF mot inloggningen ("login CSRF"). Utan `state` kan en angripare lura en kund att öppna en callback-adress med angriparens egen `code`, så att kunden loggas in på angriparens konto. Med `state` fungerar bara en callback som hör ihop med en inloggning som just den webbläsaren startade, eftersom värdet måste matcha cookien.
+
+**Varför bara `state` och inte PKCE.** Jag valde `state`. PKCE skyddar mot att en stulen `code` används av någon annan. Shoppen är en *confidential client*: koden byts på servern och kräver vår client secret, som aldrig lämnar servern. En stulen `code` är därför värdelös utan secret. PKCE hade gett ett extra lager (försvar i flera led) och skulle vara ett måste för en ren webbläsarapp eller mobilapp utan hemlighet, men kravet är `state` och/eller PKCE och `state` räcker för vår serverbaserade lösning.
+
+**Redan befintlig inloggning med lösenord.** Adminernas inloggning med e-post och lösenord finns kvar (Supabase Auth, en separat tabell). Google är ett andra sätt att logga in, för kunder. Konton slås **inte** ihop på e-postadressen: kunder identifieras bara med `google_sub`, så en kund aldrig kan ta över ett annat konto bara genom att ha samma e-postadress. E-post är därför inte unik i `customers`.
+
+### 2. Tokens
+
+| Token | Varifrån | Används till | Sparas | Livslängd |
+|---|---|---|---|---|
+| Authorization code | Google, i callback-adressen | Byts mot tokens, direkt | Sparas inte | Kort och kan användas en gång |
+| Googles ID-token (JWT) | Google, vid kodbytet | Läsa vem kunden är (`sub`, e-post, namn) | Sparas inte, kastas efter verifieringen | Cirka 1 timme (`exp`) |
+| Googles access token | Google, vid kodbytet | Används inte, eftersom allt vi behöver finns i ID-token | Sparas inte | Kort |
+| Shoppens sessions-JWT | Vår server | Visa att kunden är inloggad | `httpOnly`-cookie `customer_session` | 7 dagar |
+| `state` | Vår server | Skydda inloggningen | `httpOnly`-cookie, raderas i callbacken | 10 minuter |
+
+Googles tokens når aldrig webbläsaren eller React. Webbläsaren får bara shoppens egen session-cookie, som JavaScript inte kan läsa (`httpOnly`).
+
+### 3. Session eller JWT
+
+Jag valde **JWT i en `httpOnly`-cookie**. Efter inloggningen signerar servern en JWT (HS256, `CUSTOMER_SESSION_SECRET`, utfärdare `priamos-shop`, mottagare `customer`, `sub` = kundens id i databasen, giltig i 7 dagar). Cookien är `httpOnly`, `secure` i produktion och `SameSite=None` i produktion (annars `Lax`). Servern kontrollerar signatur, utfärdare, mottagare och utgångstid vid varje anrop.
+
+Varför JWT: Backend körs som serverless-funktioner på Vercel, utan delat minne mellan anrop. En klassisk session kräver en sessionstabell eller Redis, och en databasuppslagning per anrop. En JWT är tillståndslös, och servern behöver bara hemligheten för att kontrollera den.
+
+Nackdelen och riskerna, och vad jag gör åt dem:
+- **Stulen token.** En JWT kan inte återkallas enskilt före `exp`. Den som stjäl cookien kan agera som kunden i upp till 7 dagar. Att cookien är `httpOnly` gör den svår att stjäla med XSS, och `secure` hindrar att den skickas över ofrisk anslutning. Nödbromsen är att byta `CUSTOMER_SESSION_SECRET`, vilket ogiltigförklarar alla sessioner och loggar ut alla kunder.
+- **Kortare livslängd** minskar risken ytterligare, till priset av oftare inloggning.
+- **När en server-session passar bättre:** när man måste kunna spärra en enskild session direkt, till exempel för administratörer eller känsliga system. Då lagrar man sessionen i databasen och raderar raden vid utloggning eller misstanke om stöld. För en kund som bara ser sina egna beställningar väger bekvämligheten med JWT tyngre.
+- Utloggning raderar cookien (`POST /api/auth/logout`).
+
+### 4. Mina sidor
+
+Skyddade routes under `/api/customers` kräver en giltig kundsession och svarar **401** utan inloggning. Servern hämtar kundens id ur sessions-JWT, aldrig ur något webbläsaren skickar, så en kund ser bara sina egna ordrar. En order som läggs när kunden är inloggad kopplas till kundkontot (`orders.customer_id`) genom `optionalCustomer`-middlewaren i checkouten. Gäster kan fortfarande handla utan konto.
+
+### 5. Orderbekräftelse via e-post (Resend)
+
+- **Adapter.** Bara en fil, `integrations/emailAdapter.js`, känner till Resends adress och API-nyckel (`RESEND_API_KEY`, `EMAIL_FROM`, båda som miljövariabler). Anropet har timeout på 8 sekunder, och Resends svar valideras med Zod innan det används.
+- **När den skickas.** I Stripe-webhooken (`checkout.session.completed`), efter att ordern har markerats som betald, aldrig när kunden klickar på "Köp".
+- **Innehåll.** Ordernummer i ämnesraden. I mejlet finns kundens namn, produkterna med antal och pris, frakt och totalsumma, både som `html` och `text`. Kundens uppgifter (namn, produktnamn) escapas innan de hamnar i HTML:en.
+- **En bekräftelse per order.** Varje utskick har headern `Idempotency-Key: order-confirmation/<orderns id>`. Om Stripe skickar samma webhook flera gånger skickar Resend ändå bara ett mejl.
+- **Fel stoppar inte ordern.** Mejlfunktionen kastar aldrig. Misslyckas utskicket (fel nyckel, timeout, fel från Resend) loggas felet i serverns logg, ordern är redan betald och webhooken svarar inte 500 på grund av mejlet.
+- **Testning.** Utan egen domän skickar jag från `onboarding@resend.dev`, som bara kan leverera till e-postadressen på mitt Resend-konto. Jag testade därför med den adressen.
+
+### 6. Timeouts och validering
+
+Alla externa anrop har timeout: Googles token-endpoint och JWKS (5 s), Supabase (5 s) och Resend (8 s). Svar från Google, Supabase och Resend valideras med Zod innan de används. Fel ger ett begripligt meddelande i stället för en kraschad sida.
+
+### 7. environment variables
+
+Lokalt i `.env` (finns i `.gitignore`), i produktion i Vercels Environment Variables. Exempel finns i `.env.example` utan riktiga värden: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `CUSTOMER_SESSION_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`.
