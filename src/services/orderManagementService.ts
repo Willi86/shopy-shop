@@ -1,5 +1,3 @@
-import { supabase } from "../lib/supabase";
-
 import type {
   AdminOrder,
   FulfillmentStatus,
@@ -27,6 +25,12 @@ export type UpdateOrderInput = {
   note?: string;
 };
 
+// Same-origin in production (goes through the Vercel /api rewrite),
+// so the GitHub admin session cookie is sent.
+const API_BASE_URL = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_URL ?? "http://localhost:3001").replace(/\/$/, "")
+  : "";
+
 function normalizeText(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
 
@@ -36,14 +40,6 @@ function normalizeText(value: string | null | undefined): string | null {
 export async function updateOrderManagement(
   input: UpdateOrderInput,
 ): Promise<void> {
-  const carrier = normalizeText(input.carrier);
-
-  const trackingNumber = normalizeText(input.trackingNumber);
-
-  const adminNote = normalizeText(input.adminNote);
-
-  const historyNote = normalizeText(input.note);
-
   if (
     input.refundAmount !== null &&
     (!Number.isFinite(input.refundAmount) || input.refundAmount < 0)
@@ -51,29 +47,46 @@ export async function updateOrderManagement(
     throw new Error("Återbetalningsbeloppet är ogiltigt.");
   }
 
-  const { error } = await supabase.rpc("update_order_management", {
-    p_order_id: input.orderId,
+  const response = await fetch(
+    `${API_BASE_URL}/api/admin/orders/${encodeURIComponent(input.orderId)}`,
+    {
+      method: "PATCH",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        orderStatus: input.orderStatus,
+        paymentStatus: input.paymentStatus,
+        fulfillmentStatus: input.fulfillmentStatus,
+        returnStatus: input.returnStatus,
+        carrier: normalizeText(input.carrier),
+        trackingNumber: normalizeText(input.trackingNumber),
+        refundAmount: input.refundAmount,
+        adminNote: normalizeText(input.adminNote),
+        historyNote: normalizeText(input.note),
+      }),
+    },
+  );
 
-    p_order_status: input.orderStatus,
+  if (response.status === 401) {
+    throw new Error("Din administratörssession har gått ut. Logga in igen.");
+  }
 
-    p_payment_status: input.paymentStatus,
+  if (!response.ok) {
+    let message = "Kunde inte uppdatera ordern.";
 
-    p_fulfillment_status: input.fulfillmentStatus,
+    try {
+      const data: { error?: string } = await response.json();
 
-    p_return_status: input.returnStatus,
+      if (data.error) {
+        message = data.error;
+      }
+    } catch {
+      // keep default message
+    }
 
-    p_carrier: carrier,
-
-    p_tracking_number: trackingNumber,
-
-    p_refund_amount: input.refundAmount,
-
-    p_admin_note: adminNote,
-
-    p_history_note: historyNote,
-  });
-
-  if (error) {
-    throw new Error(`Kunde inte uppdatera ordern: ${error.message}`);
+    throw new Error(message);
   }
 }

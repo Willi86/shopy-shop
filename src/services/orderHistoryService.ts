@@ -1,5 +1,3 @@
-import { supabase } from "../lib/supabase";
-
 export type OrderHistoryField =
   | "order_status"
   | "payment_status"
@@ -32,33 +30,35 @@ type OrderHistoryRow = {
   created_at: string;
 };
 
+const API_BASE_URL = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_URL ?? "http://localhost:3001").replace(/\/$/, "")
+  : "";
+
 export async function getOrderHistory(
   orderId: string,
 ): Promise<OrderHistoryEntry[]> {
-  const { data, error } = await supabase
-    .from("order_status_history")
-    .select(`
-      id,
-      order_id,
-      changed_by,
-      field_name,
-      old_value,
-      new_value,
-      note,
-      created_at
-    `)
-    .eq("order_id", orderId)
-    .order("created_at", {
-      ascending: false,
-    });
+  const response = await fetch(
+    `${API_BASE_URL}/api/admin/orders/${encodeURIComponent(orderId)}/history`,
+    {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    },
+  );
 
-  if (error) {
+  if (response.status === 401) {
+    throw new Error("Din administratörssession har gått ut. Logga in igen.");
+  }
+
+  if (!response.ok) {
     throw new Error(
-      `Kunde inte ladda orderhistoriken: ${error.message}`,
+      `Kunde inte ladda orderhistoriken. (HTTP ${response.status})`,
     );
   }
 
-  return (data as OrderHistoryRow[]).map((row) => ({
+  const data = (await response.json()) as { history?: OrderHistoryRow[] };
+
+  return (data.history ?? []).map((row) => ({
     id: row.id,
     orderId: row.order_id,
     changedBy: row.changed_by,
