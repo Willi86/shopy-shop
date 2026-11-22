@@ -1,5 +1,5 @@
 import "dotenv/config";
-
+import { sendOrderConfirmationSafely } from "./emails/orderConfirmation.js";
 // ============================================================
 // 1. IMPORTS
 // ============================================================
@@ -328,7 +328,8 @@ app.post(
             }),
           },
         );
-
+        // Send the order confirmation (never throws, never blocks the order).
+        await sendOrderConfirmationSafely({ paymentDb, orderId });
         return res.json({
           received: true,
           result,
