@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "pedantic": "off",
+    "nursery": "off"
+  },
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-floating-promises": "warn",
+    "typescript/no-unsafe-type-assertion": "warn",
+    "typescript/consistent-return": "off",
+    "typescript/no-unnecessary-type-conversion": "off",
+    "typescript/no-unnecessary-type-assertion": "off",
+    "no-unused-vars": "error",
+    "no-debugger": "error"
+  },
+  "ignorePatterns": [
+    "dist/**",
+    "node_modules/**",
+    "server/**",
+    "supabase/**",
+    "coverage/**"
+  ]
+}
