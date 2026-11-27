@@ -1,0 +1,28 @@
+{
+  "$schema": "../node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "pedantic": "off",
+    "nursery": "off"
+  },
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "rules": {
+    "no-unused-vars": "error",
+    "no-debugger": "error",
+    "oxc/no-async-endpoint-handlers": "off",
+    "eslint/no-underscore-dangle": [
+      "warn",
+      {
+        "allow": ["__invalid", "__invalidCsv"]
+      }
+    ]
+  },
+  "ignorePatterns": ["node_modules/**", "coverage/**", "dist/**"]
+}
