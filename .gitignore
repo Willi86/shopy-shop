@@ -37,3 +37,17 @@ supabase/.temp/
 !.env.*.example
 node_modules/
 dist/
+# ==========================================
+# Private database infrastructure
+# ==========================================
+
+/supabase/schema.sql
+/supabase/schema.snapshot.sql
+/supabase/schema.tmp.sql
+/supabase/backups/
+/scripts/sync-database.ps1
+
+# Database dumps and backups
+*.dump
+*.backup
+*.sql.gz

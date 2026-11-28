@@ -37,6 +37,7 @@
     "oxfmt": "^0.80.0",
     "oxlint": "^1.95.0",
     "oxlint-tsgolint": "^7.0.2009",
+    "supabase": "^3.4.0",
     "typescript": "~7.0.2",
     "vite": "^8.4.0"
   }
